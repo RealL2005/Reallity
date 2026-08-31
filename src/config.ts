@@ -1,5 +1,11 @@
 import { existsSync, readFileSync } from "node:fs";
 import path from "node:path";
+import { fileURLToPath } from "node:url";
+
+const packageRoot = path.resolve(
+  path.dirname(fileURLToPath(import.meta.url)),
+  "..",
+);
 
 export function loadEnvFile(
   filePath = path.join(process.cwd(), ".env"),
@@ -44,6 +50,12 @@ export function loadEnvFile(
   }
 
   return loaded;
+}
+
+export function loadProjectEnvFiles(): Record<string, string> {
+  const fromCwd = loadEnvFile(path.join(process.cwd(), ".env"));
+  const fromPackage = loadEnvFile(path.join(packageRoot, ".env"));
+  return { ...fromPackage, ...fromCwd };
 }
 
 function stripQuotes(value: string): string {

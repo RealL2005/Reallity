@@ -4,7 +4,7 @@ import { ReallityAgent } from "./agent.ts";
 import { EventBus } from "./observer/events.ts";
 import { startTUI } from "./observer/tui.tsx";
 import { startWebUI } from "./web/server.ts";
-import { loadEnvFile } from "./config.ts";
+import { loadProjectEnvFiles } from "./config.ts";
 import { TOOL_SCHEMAS } from "./tools/schemas.ts";
 import { renderBanner } from "./banner.ts";
 
@@ -71,7 +71,7 @@ export function parseCliArgs(argv: string[]): CliOptions {
 }
 
 export async function runCli(argv: string[] = process.argv.slice(2)): Promise<number> {
-  loadEnvFile();
+  loadProjectEnvFiles();
   const options = parseCliArgs(argv);
 
   if (options.showHelp) {
