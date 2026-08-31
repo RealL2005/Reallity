@@ -2,6 +2,7 @@ import type { AgentState } from "../fsm/types.ts";
 import type { ToolName } from "../tools/schemas.ts";
 import type { ToolCall } from "../core/context.ts";
 import type { Diagnostic } from "../core/diagnostics.ts";
+import type { LLMUsage } from "../llm/types.ts";
 
 export type AgentEvent =
   | { type: "state"; state: AgentState; timestamp: number }
@@ -9,6 +10,7 @@ export type AgentEvent =
       type: "llm";
       content: string;
       toolCalls: ToolCall[];
+      usage: LLMUsage;
       timestamp: number;
     }
   | { type: "tool_start"; tool: ToolName; timestamp: number }
@@ -18,6 +20,11 @@ export type AgentEvent =
       success: boolean;
       output?: string;
       error?: string;
+      diff?: {
+        path: string;
+        oldText: string;
+        newText: string;
+      };
       timestamp: number;
     }
   | {

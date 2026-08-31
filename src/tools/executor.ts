@@ -37,6 +37,11 @@ export interface ToolResult {
   output: string;
   success: boolean;
   error?: string;
+  diff?: {
+    path: string;
+    oldText: string;
+    newText: string;
+  };
   diagnostic?: ReturnType<typeof parseDiagnostic>;
 }
 
@@ -60,11 +65,20 @@ export async function executeTool(
 
   try {
     const output = await dispatch(name, args, context);
+    const diff =
+      name === "edit_file"
+        ? {
+            path: String(args.path),
+            oldText: String(args.old_str),
+            newText: String(args.new_str),
+          }
+        : undefined;
     return {
       toolCallId: call.id,
       name,
       output: limitOutput(output, context.maxOutputChars),
       success: true,
+      ...(diff ? { diff } : {}),
     };
   } catch (error) {
     const message = error instanceof Error ? error.message : String(error);

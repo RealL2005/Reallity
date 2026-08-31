@@ -22,14 +22,36 @@ test("parseCliArgs parses explicit web mode options", () => {
 });
 
 test("parseCliArgs uses headless defaults", () => {
-  const parsed = parseCliArgs([]);
+  const keys = [
+    "REALLITY_MODEL",
+    "REALLITY_BASE_URL",
+    "REALLITY_WORKSPACE",
+    "REALLITY_PORT",
+  ] as const;
+  const saved = new Map<string, string | undefined>();
+  for (const key of keys) {
+    saved.set(key, process.env[key]);
+    delete process.env[key];
+  }
 
-  expect(parsed).toMatchObject({
-    mode: "headless",
-    task: "",
-    workspace: process.cwd(),
-    port: 3000,
-  });
+  try {
+    const parsed = parseCliArgs([]);
+
+    expect(parsed).toMatchObject({
+      mode: "headless",
+      task: "",
+      workspace: process.cwd(),
+      port: 3000,
+    });
+  } finally {
+    for (const [key, value] of saved) {
+      if (value === undefined) {
+        delete process.env[key];
+      } else {
+        process.env[key] = value;
+      }
+    }
+  }
 });
 
 test("parseCliArgs accepts --version", () => {

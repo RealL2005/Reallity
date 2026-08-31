@@ -173,6 +173,7 @@ export class ReallityAgent {
         success: result.success,
         output: result.output,
         error: result.error,
+        diff: result.diff,
         timestamp: Date.now(),
       });
 
@@ -276,6 +277,7 @@ export class ReallityAgent {
       type: "llm",
       content: response.content,
       toolCalls: response.toolCalls,
+      usage: response.usage,
       timestamp: Date.now(),
     });
     return response;

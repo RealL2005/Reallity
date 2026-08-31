@@ -46,3 +46,38 @@ test("buildTraceHtml escapes script-tag content", () => {
   expect(html).not.toContain("<script>alert(1)</script>");
   expect(html).toContain("&lt;script&gt;");
 });
+
+test("buildTraceHtml renders token audit and edit diff", () => {
+  const html = buildTraceHtml([
+    { type: "state", state: "executor", timestamp: 1 },
+    {
+      type: "llm",
+      content: "editing",
+      toolCalls: [],
+      usage: {
+        promptTokens: 8,
+        completionTokens: 3,
+        totalTokens: 11,
+        promptCacheHitTokens: 1,
+        promptCacheMissTokens: 7,
+      },
+      timestamp: 2,
+    },
+    {
+      type: "tool_result",
+      tool: "edit_file",
+      success: true,
+      diff: {
+        path: "src/app.ts",
+        oldText: "const x = 1;",
+        newText: "const x = 2;",
+      },
+      timestamp: 3,
+    },
+  ]);
+
+  expect(html).toContain("Token & cache audit");
+  expect(html).toContain("Cumulative tokens: 11");
+  expect(html).toContain("const x = 1;");
+  expect(html).toContain("const x = 2;");
+});

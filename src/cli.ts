@@ -106,9 +106,15 @@ export async function runCli(argv: string[] = process.argv.slice(2)): Promise<nu
   if (options.mode === "web") {
     const instance = startWebUI({
       port: options.port,
-      runTask: (task) => agent.run(task),
+      eventBus,
     });
-    console.log(`WebUI listening on http://127.0.0.1:${instance.server.port}`);
+    const runPromise = agent.run(options.task);
+    runPromise.then((result) => {
+      console.log(`Task finished: ${result.message}`);
+    });
+    console.log(
+      `Trace WebUI listening on http://127.0.0.1:${instance.server.port}`,
+    );
     await new Promise<void>((resolve) => {
       process.once("SIGINT", () => resolve());
       process.once("SIGTERM", () => resolve());
@@ -148,7 +154,7 @@ const HELP_TEXT = [
   "  --workspace   workspace directory (default: current directory)",
   "  --model       model name (env: REALLITY_MODEL)",
   "  --base-url    OpenAI-compatible API base URL (env: REALLITY_BASE_URL)",
-  "  --port        web UI port (default: 3000)",
+  "  --port        trace WebUI port (default: 3000)",
   "  -h, --help    show help",
   "  -V, --version show version",
 ].join("\n");
