@@ -1,5 +1,6 @@
 import React, { useEffect, useState } from "react";
 import { render, Box, Text, useInput, useStdout } from "ink";
+import Table from "./ink-table.tsx";
 import { renderBanner } from "../banner.ts";
 import type { EventBus } from "./events.ts";
 import type { AgentState } from "../fsm/types.ts";
@@ -319,10 +320,9 @@ function renderMarkdownLineNodes(
       return;
     }
     nodes.push(
-      <MarkdownTable
+      <Table
         key={`table-${nodes.length}`}
-        lines={tableLines}
-        maxWidth={maxWidth}
+        data={parseMarkdownTableData(tableLines)}
       />,
     );
     tableLines = [];
@@ -374,45 +374,6 @@ function renderMarkdownLineNodes(
 
   flushTable();
   return nodes;
-}
-
-function MarkdownTable({
-  lines,
-  maxWidth,
-}: {
-  lines: string[];
-  maxWidth: number;
-}) {
-  const [TableComponent, setTableComponent] = useState<
-    React.ComponentType<any> | null
-  >(null);
-
-  useEffect(() => {
-    let active = true;
-    import("ink-table").then((module) => {
-      if (active) {
-        setTableComponent(() => module.default);
-      }
-    });
-    return () => {
-      active = false;
-    };
-  }, []);
-
-  if (!TableComponent) {
-    return <Text color="gray">Rendering table...</Text>;
-  }
-
-  return (
-    <Box width={maxWidth}>
-      <TableComponent
-        data={parseMarkdownTableData(lines)}
-        cell={({ children }: { children: React.ReactNode }) => (
-          <Text wrap="truncate">{children}</Text>
-        )}
-      />
-    </Box>
-  );
 }
 
 function renderToolLines(
