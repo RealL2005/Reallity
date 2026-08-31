@@ -14,6 +14,7 @@ export interface OpenAIMessage {
   content: string;
   tool_calls?: ToolCall[];
   tool_call_id?: string;
+  reasoning_content?: string;
 }
 
 export interface ChecklistItem {
@@ -91,11 +92,16 @@ export class ContextManager {
     this.truncateHistory();
   }
 
-  appendAssistant(content: string, toolCalls: ToolCall[] = []): void {
+  appendAssistant(
+    content: string,
+    toolCalls: ToolCall[] = [],
+    reasoningContent = "",
+  ): void {
     this.history.push({
       role: "assistant",
       content,
       ...(toolCalls.length > 0 ? { tool_calls: toolCalls } : {}),
+      ...(reasoningContent ? { reasoning_content: reasoningContent } : {}),
     });
     this.truncateHistory();
   }
@@ -202,6 +208,9 @@ function sanitizeToolHistory(history: OpenAIMessage[]): OpenAIMessage[] {
         sanitized.push({
           role: "assistant",
           content: message.content,
+          ...(message.reasoning_content
+            ? { reasoning_content: message.reasoning_content }
+            : {}),
         });
       }
 

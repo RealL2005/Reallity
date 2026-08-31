@@ -50,6 +50,7 @@ test("buildChatRequestBody omits the tools field when the list is empty", () => 
 test("streamCompletion accumulates content and tool call arguments", async () => {
   const sse = [
     'data: {"id":"1","object":"chat.completion.chunk","created":1,"model":"test","choices":[{"index":0,"delta":{"role":"assistant","content":"Hel"},"finish_reason":null}]}\n\n',
+    'data: {"id":"1","object":"chat.completion.chunk","created":1,"model":"test","choices":[{"index":0,"delta":{"reasoning_content":"think"},"finish_reason":null}]}\n\n',
     'data: {"id":"1","object":"chat.completion.chunk","created":1,"model":"test","choices":[{"index":0,"delta":{"content":"lo"},"finish_reason":null}]}\n\n',
     'data: {"id":"1","object":"chat.completion.chunk","created":1,"model":"test","choices":[{"index":0,"delta":{"tool_calls":[{"index":0,"id":"call_1","type":"function","function":{"name":"read_file","arguments":"{\\"pa"}}]},"finish_reason":null}]}\n\n',
     'data: {"id":"1","object":"chat.completion.chunk","created":1,"model":"test","choices":[{"index":0,"delta":{"tool_calls":[{"index":0,"function":{"arguments":"th\\":\\"a.ts\\"}"}}]},"finish_reason":"tool_calls"}]}\n\n',
@@ -73,6 +74,7 @@ test("streamCompletion accumulates content and tool call arguments", async () =>
   ]);
 
   expect(response.content).toBe("Hello");
+  expect(response.reasoningContent).toBe("think");
   expect(response.finishReason).toBe("tool_calls");
   expect(response.toolCalls).toHaveLength(1);
   expect(response.toolCalls[0].function.name).toBe("read_file");

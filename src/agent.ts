@@ -52,6 +52,7 @@ export class ReallityAgent {
   private readonly checkpoint: GitCheckpoint;
   private readonly runTests: RunTests;
   private readonly commitMessagePrefix: string;
+  private toolRounds = 0;
 
   constructor(options: ReallityAgentOptions) {
     this.workspaceRoot = options.workspaceRoot;
@@ -138,7 +139,11 @@ export class ReallityAgent {
 
   private async plan(): Promise<void> {
     const response = await this.complete();
-    this.context.appendAssistant(response.content, response.toolCalls);
+    this.context.appendAssistant(
+      response.content,
+      response.toolCalls,
+      response.reasoningContent,
+    );
     const checklist = extractChecklist(response.content);
     this.context.addChecklistItems(
       checklist.length > 0 ? checklist : ["Complete the requested task"],
@@ -149,12 +154,19 @@ export class ReallityAgent {
 
   private async execute(): Promise<void> {
     const response = await this.complete();
-    this.context.appendAssistant(response.content, response.toolCalls);
+    this.context.appendAssistant(
+      response.content,
+      response.toolCalls,
+      response.reasoningContent,
+    );
 
     if (response.toolCalls.length === 0) {
+      this.toolRounds = 0;
       this.transition("verify");
       return;
     }
+
+    this.toolRounds += 1;
 
     for (const call of response.toolCalls) {
       this.emit({
@@ -193,6 +205,11 @@ export class ReallityAgent {
         );
       }
     }
+
+    if (this.toolRounds >= 6) {
+      this.toolRounds = 0;
+      this.transition("verify");
+    }
   }
 
   private async verify(task: string): Promise<void> {
@@ -230,11 +247,27 @@ export class ReallityAgent {
   }
 
   private async review(task: string): Promise<void> {
-    const diff = await this.checkpoint.diff();
+    const [diff, status] = await Promise.all([
+      this.checkpoint.diff(),
+      this.checkpoint.status(),
+    ]);
+    const untrackedFiles = status
+      .split("\n")
+      .map((line) => line.trim())
+      .filter((line) => line.startsWith("??"))
+      .map((line) => line.slice(2).trim());
+    const reviewDiff = [
+      diff,
+      untrackedFiles.length > 0
+        ? `Untracked files:\n${untrackedFiles.join("\n")}`
+        : "",
+    ]
+      .filter(Boolean)
+      .join("\n\n");
     const files = [...this.context.workingMemory.modifiedFiles];
     const prompt = buildReviewPrompt({
       requirement: task,
-      diff,
+      diff: reviewDiff,
       files,
     });
     const response = await this.client.streamCompletion(
@@ -260,8 +293,7 @@ export class ReallityAgent {
   }
 
   private async commit(task: string): Promise<void> {
-    const diff = await this.checkpoint.diff();
-    if (diff.trim().length > 0) {
+    if (await this.checkpoint.hasChanges()) {
       await this.checkpoint.commitAll(`${this.commitMessagePrefix}: ${task}`);
     }
     this.transition("finish");

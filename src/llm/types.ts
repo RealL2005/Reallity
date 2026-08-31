@@ -5,6 +5,7 @@ export interface ChatMessage {
   content: string;
   tool_calls?: ToolCall[];
   tool_call_id?: string;
+  reasoning_content?: string;
 }
 
 export interface StreamToolCallDelta {
@@ -27,6 +28,7 @@ export interface ChatCompletionChunk {
     delta: {
       role?: string;
       content?: string;
+      reasoning_content?: string | null;
       tool_calls?: StreamToolCallDelta[];
     };
     finish_reason: string | null;
@@ -42,6 +44,11 @@ export interface ChatCompletionChunk {
 
 export type LLMStreamEvent =
   | { type: "delta"; content: string; finishReason: string | null }
+  | {
+      type: "reasoning_delta";
+      content: string;
+      finishReason: string | null;
+    }
   | {
       type: "tool_call_delta";
       toolCall: StreamToolCallDelta;
@@ -60,6 +67,7 @@ export interface LLMUsage {
 
 export interface LLMResponse {
   content: string;
+  reasoningContent: string;
   toolCalls: ToolCall[];
   finishReason: string;
   usage: LLMUsage;

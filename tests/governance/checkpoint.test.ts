@@ -80,3 +80,11 @@ test("GitCheckpoint commits all changes", async () => {
   });
   expect(log.stdout).toContain("feat: test commit");
 });
+
+test("GitCheckpoint detects untracked files via status and hasChanges", async () => {
+  const checkpoint = new GitCheckpoint(root);
+  await writeFile(path.join(root, "untracked.txt"), "new\n");
+
+  expect(await checkpoint.hasChanges()).toBe(true);
+  expect(await checkpoint.status()).toContain("?? untracked.txt");
+});

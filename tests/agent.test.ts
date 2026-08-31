@@ -19,14 +19,25 @@ interface ClientLike {
   ): Promise<LLMResponse>;
 }
 
+type ScriptedResponse = Omit<LLMResponse, "reasoningContent"> & {
+  reasoningContent?: string;
+};
+
 class ScriptedClient implements ClientLike {
   private calls = 0;
 
-  constructor(private readonly scripts: LLMResponse[]) {}
+  constructor(private readonly scripts: ScriptedResponse[]) {}
 
   async streamCompletion(): Promise<LLMResponse> {
-    const response = this.scripts[this.calls] ?? {
+    const scripted = this.scripts[this.calls];
+    const response: LLMResponse = scripted
+      ? {
+          ...scripted,
+          reasoningContent: scripted.reasoningContent ?? "",
+        }
+      : {
       content: "done",
+      reasoningContent: "",
       toolCalls: [],
       finishReason: "stop",
       usage: {
@@ -219,4 +230,57 @@ test("agent repairs a failing verification before committing", async () => {
     cwd: root,
   });
   expect(log.stdout).toContain("agent:");
+});
+
+test("agent forces verify after repeated tool-calling rounds", async () => {
+  const bus = new EventBus();
+  const toolResponse = {
+    content: "",
+    toolCalls: [
+      {
+        id: "call_read",
+        type: "function" as const,
+        function: { name: "read_file", arguments: '{"path":"file.txt"}' },
+      },
+    ],
+    finishReason: "tool_calls",
+    usage: usage(),
+  };
+  const client = new ScriptedClient([
+    {
+      content: "- [ ] inspect file",
+      toolCalls: [],
+      finishReason: "stop",
+      usage: usage(),
+    },
+    toolResponse,
+    toolResponse,
+    toolResponse,
+    toolResponse,
+    toolResponse,
+    toolResponse,
+    {
+      content: '{"approved": true, "feedback": "ok"}',
+      toolCalls: [],
+      finishReason: "stop",
+      usage: usage(),
+    },
+  ]);
+
+  const agent = new ReallityAgent({
+    workspaceRoot: root,
+    client,
+    eventBus: bus,
+    runTests: async (): Promise<VerificationResult> => ({
+      passed: true,
+      exitCode: 0,
+      output: "1 pass\n0 fail",
+      diagnostics: [],
+    }),
+  });
+
+  const result = await agent.run("Inspect file.txt");
+
+  expect(result.success).toBe(true);
+  expect(bus.history.filter((event) => event.type === "tool_start").length).toBe(6);
 });

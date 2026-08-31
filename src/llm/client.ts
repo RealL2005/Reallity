@@ -146,6 +146,7 @@ export class OpenAICompatibleClient {
     const decoder = new TextDecoder();
     const parser = new SSEParser();
     let content = "";
+    let reasoningContent = "";
     let finishReason = "";
     let usage: LLMUsage = emptyUsage();
     const toolCalls: ToolCall[] = [];
@@ -160,6 +161,9 @@ export class OpenAICompatibleClient {
       this.consumeEvents(events, {
         onContent: (piece) => {
           content += piece;
+        },
+        onReasoning: (piece) => {
+          reasoningContent += piece;
         },
         onFinish: (reason) => {
           if (reason) {
@@ -179,6 +183,9 @@ export class OpenAICompatibleClient {
       onContent: (piece) => {
         content += piece;
       },
+      onReasoning: (piece) => {
+        reasoningContent += piece;
+      },
       onFinish: (reason) => {
         if (reason) {
           finishReason = reason;
@@ -194,6 +201,7 @@ export class OpenAICompatibleClient {
 
     return {
       content,
+      reasoningContent,
       toolCalls,
       finishReason: finishReason || "stop",
       usage,
@@ -204,6 +212,7 @@ export class OpenAICompatibleClient {
     events: LLMStreamEvent[],
     handlers: {
       onContent: (content: string) => void;
+      onReasoning: (content: string) => void;
       onFinish: (reason: string | null) => void;
       onUsage: (usage: Partial<LLMUsage>) => void;
       onToolCall: (delta: StreamToolCallDelta) => void;
@@ -212,6 +221,9 @@ export class OpenAICompatibleClient {
     for (const event of events) {
       if (event.type === "delta") {
         handlers.onContent(event.content);
+        handlers.onFinish(event.finishReason);
+      } else if (event.type === "reasoning_delta") {
+        handlers.onReasoning(event.content);
         handlers.onFinish(event.finishReason);
       } else if (event.type === "tool_call_delta") {
         handlers.onToolCall(event.toolCall);

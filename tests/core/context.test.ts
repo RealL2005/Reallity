@@ -74,6 +74,20 @@ test("ContextManager appends messages and serializes OpenAI format", () => {
   });
 });
 
+test("ContextManager serializes assistant reasoning_content", () => {
+  const manager = new ContextManager({ systemPrompt: "system" });
+
+  manager.appendAssistant("answer", [], "step by step");
+
+  const messages = manager.serializeOpenAI();
+
+  expect(messages[1]).toMatchObject({
+    role: "assistant",
+    content: "answer",
+    reasoning_content: "step by step",
+  });
+});
+
 test("Working memory updates goal, checklist, files, and constraints", () => {
   const memory = createInitialWorkingMemory();
   const manager = new ContextManager({

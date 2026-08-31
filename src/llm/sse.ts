@@ -52,6 +52,14 @@ function parseBlock(block: string): LLMStreamEvent[] {
     const events: LLMStreamEvent[] = [];
 
     for (const choice of chunk.choices) {
+      if (typeof choice.delta.reasoning_content === "string") {
+        events.push({
+          type: "reasoning_delta",
+          content: choice.delta.reasoning_content,
+          finishReason: choice.finish_reason,
+        });
+      }
+
       if (typeof choice.delta.content === "string") {
         events.push({
           type: "delta",

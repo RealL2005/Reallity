@@ -59,3 +59,14 @@ test("SSEParser ignores null delta content", () => {
 
   expect(events).toEqual([]);
 });
+
+test("SSEParser emits reasoning_content deltas", () => {
+  const parser = new SSEParser();
+  const events = parser.push(
+    'data: {"id":"1","choices":[{"index":0,"delta":{"reasoning_content":"think"},"finish_reason":null}]}\n\n',
+  );
+
+  expect(events).toEqual([
+    { type: "reasoning_delta", content: "think", finishReason: null },
+  ]);
+});

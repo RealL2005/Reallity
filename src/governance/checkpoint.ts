@@ -52,6 +52,22 @@ export class GitCheckpoint {
     }
   }
 
+  async status(): Promise<string> {
+    try {
+      return await this.git("status", "--porcelain");
+    } catch (error) {
+      throw new AgentError(
+        `Failed to read git status: ${error instanceof Error ? error.message : String(error)}`,
+        { code: "GIT_STATUS_FAILED" },
+      );
+    }
+  }
+
+  async hasChanges(): Promise<boolean> {
+    const status = await this.status();
+    return status.trim().length > 0;
+  }
+
   async commitAll(message: string): Promise<string> {
     try {
       await this.git("add", "-A");
