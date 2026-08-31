@@ -41,7 +41,13 @@ export type AgentEvent =
   | { type: "diagnostic"; diagnostic: Diagnostic; timestamp: number }
   | { type: "checkpoint"; head: string; clean: boolean; timestamp: number }
   | { type: "error"; message: string; timestamp: number }
-  | { type: "finish"; success: boolean; timestamp: number };
+  | {
+      type: "finish";
+      success: boolean;
+      message: string;
+      answer?: string;
+      timestamp: number;
+    };
 
 type EventListener = (event: AgentEvent) => void;
 

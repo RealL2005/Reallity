@@ -1,4 +1,6 @@
 import { spawn } from "node:child_process";
+import { existsSync, readFileSync } from "node:fs";
+import path from "node:path";
 import { parseDiagnostic, type Diagnostic } from "../core/diagnostics.ts";
 import { buildBashEnv } from "../tools/guards.ts";
 
@@ -40,6 +42,54 @@ export async function runBunTests(
   return runCommand(bunCommand, args, workspaceRoot, options.timeoutMs ?? 30_000).then(
     ({ output, exitCode }) => buildVerificationResult(output, exitCode),
   );
+}
+
+export async function detectVerificationCommand(
+  workspaceRoot: string,
+): Promise<string[]> {
+  const packagePath = path.join(workspaceRoot, "package.json");
+  if (!existsSync(packagePath)) {
+    return [];
+  }
+
+  const packageJson = JSON.parse(readFileSync(packagePath, "utf8")) as {
+    scripts?: Record<string, string>;
+  };
+  const scripts = packageJson.scripts ?? {};
+  const packageManager = detectPackageManager(workspaceRoot);
+
+  for (const script of ["test", "lint", "typecheck"]) {
+    if (scripts[script]) {
+      return [packageManager, "run", script];
+    }
+  }
+
+  return [];
+}
+
+export async function runVerification(
+  workspaceRoot: string,
+  options: RunBunTestsOptions = {},
+): Promise<VerificationResult> {
+  const command = await detectVerificationCommand(workspaceRoot);
+  if (command.length === 0) {
+    return {
+      passed: true,
+      exitCode: 0,
+      output: "No test, lint, or typecheck script detected.",
+      diagnostics: [],
+    };
+  }
+
+  const [runner, ...args] = command;
+  const executable =
+    runner === "bun" ? (options.bunCommand ?? process.execPath) : runner;
+  return runCommand(
+    executable,
+    args,
+    workspaceRoot,
+    options.timeoutMs ?? 30_000,
+  ).then(({ output, exitCode }) => buildVerificationResult(output, exitCode));
 }
 
 export interface ReviewPromptInput {
@@ -108,4 +158,20 @@ function runCommand(
       });
     });
   });
+}
+
+function detectPackageManager(workspaceRoot: string): string {
+  if (
+    existsSync(path.join(workspaceRoot, "bun.lockb")) ||
+    existsSync(path.join(workspaceRoot, "bun.lock"))
+  ) {
+    return "bun";
+  }
+  if (existsSync(path.join(workspaceRoot, "pnpm-lock.yaml"))) {
+    return "pnpm";
+  }
+  if (existsSync(path.join(workspaceRoot, "yarn.lock"))) {
+    return "yarn";
+  }
+  return "bun";
 }

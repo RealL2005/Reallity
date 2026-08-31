@@ -13,6 +13,7 @@ import {
   buildReviewPrompt,
   buildVerificationResult,
   runBunTests,
+  runVerification,
   type VerificationResult,
 } from "./verify/runner.ts";
 import { parseReviewResponse } from "./verify/review.ts";
@@ -71,7 +72,7 @@ export class ReallityAgent {
       systemPrompt: "",
       maxHistoryMessages: 60,
     });
-    this.runTests = options.runTests ?? ((root) => runBunTests(root));
+    this.runTests = options.runTests ?? ((root) => runVerification(root));
     this.commitMessagePrefix = options.commitMessagePrefix ?? "agent";
   }
 
@@ -118,6 +119,8 @@ export class ReallityAgent {
       this.emit({
         type: "finish",
         success: true,
+        message,
+        answer: this.finalAnswer || message,
         timestamp: Date.now(),
       });
       return {
