@@ -4,6 +4,9 @@
   "private": true,
   "type": "module",
   "description": "Reallity: a native coding-agent harness with FSM, TDD self-healing, and dual-mode UI.",
+  "bin": {
+    "reallity": "bin/reallity.js"
+  },
   "scripts": {
     "dev": "bun run src/cli.ts",
     "test": "bun test",
