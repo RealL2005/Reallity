@@ -133,7 +133,12 @@ export async function runCli(argv: string[] = process.argv.slice(2)): Promise<nu
   }
 
   if (options.mode === "tui") {
-    const stopTUI = startTUI(eventBus);
+    const stopTUI = startTUI(eventBus, {
+      model: options.model,
+      mode: options.mode,
+      task: options.task,
+      tokenLimit: Number(process.env.REALLITY_TOKEN_LIMIT ?? 200_000),
+    });
     const result = await agent.run(options.task);
     stopTUI();
     return result.success ? 0 : 1;

@@ -8,6 +8,10 @@ import type { LLMUsage } from "../llm/types.ts";
 
 interface TuiAppProps {
   bus: EventBus;
+  model?: string;
+  mode?: string;
+  task?: string;
+  tokenLimit?: number;
 }
 
 interface DiffView {
@@ -24,15 +28,25 @@ interface TuiSnapshot {
   toolArgs?: Record<string, unknown>;
   toolOutput?: string;
   toolError?: string;
-  diff?: DiffView;
   usage?: LLMUsage;
   events: number;
   running: boolean;
 }
 
-function TuiApp({ bus }: TuiAppProps) {
+interface WorkflowStep {
+  label: string;
+  status: "pending" | "active" | "done";
+}
+
+function TuiApp({
+  bus,
+  model = "gpt-4.1-mini",
+  mode = "tui",
+  task = "",
+  tokenLimit = 200_000,
+}: TuiAppProps) {
   const { stdout } = useStdout();
-  const contentWidth = Math.max(20, stdout.columns - 8);
+  const contentWidth = Math.max(40, stdout.columns - 4);
   const [showSplash, setShowSplash] = useState(true);
   const [snapshot, setSnapshot] = useState<TuiSnapshot>({
     state: "init",
@@ -41,9 +55,23 @@ function TuiApp({ bus }: TuiAppProps) {
     events: 0,
     running: true,
   });
-  const [focused, setFocused] = useState<"llm" | "tool">("llm");
-  const [llmOffset, setLlmOffset] = useState(0);
-  const [toolOffset, setToolOffset] = useState(0);
+  const [usageTotals, setUsageTotals] = useState<LLMUsage>({
+    promptTokens: 0,
+    completionTokens: 0,
+    totalTokens: 0,
+    promptCacheHitTokens: 0,
+    promptCacheMissTokens: 0,
+  });
+  const [diffs, setDiffs] = useState<DiffView[]>([]);
+  const [command, setCommand] = useState("");
+  const [expandedDiffs, setExpandedDiffs] = useState<Set<number>>(new Set());
+  const [diffFocus, setDiffFocus] = useState(0);
+  const [diffOffsets, setDiffOffsets] = useState<number[]>([]);
+
+  useEffect(() => {
+    const timer = setTimeout(() => setShowSplash(false), 2_200);
+    return () => clearTimeout(timer);
+  }, []);
 
   useEffect(
     () =>
@@ -66,12 +94,10 @@ function TuiApp({ bus }: TuiAppProps) {
             next.toolArgs = event.args;
             next.toolOutput = undefined;
             next.toolError = undefined;
-            next.diff = undefined;
           } else if (event.type === "tool_result") {
             next.tool = `${event.tool} ${event.success ? "ok" : "failed"}`;
             next.toolOutput = event.output;
             next.toolError = event.error;
-            next.diff = event.diff;
           } else if (event.type === "verification") {
             next.tool = event.passed ? "Tests passed" : "Tests failed";
           } else if (event.type === "error") {
@@ -80,46 +106,77 @@ function TuiApp({ bus }: TuiAppProps) {
 
           return next;
         });
+
         if (event.type === "llm") {
-          setFocused("llm");
-        } else if (event.type === "tool_start" || event.type === "tool_result") {
-          setFocused("tool");
+          setUsageTotals((current) => ({
+            promptTokens: current.promptTokens + event.usage.promptTokens,
+            completionTokens:
+              current.completionTokens + event.usage.completionTokens,
+            totalTokens: current.totalTokens + event.usage.totalTokens,
+            promptCacheHitTokens:
+              current.promptCacheHitTokens + event.usage.promptCacheHitTokens,
+            promptCacheMissTokens:
+              current.promptCacheMissTokens + event.usage.promptCacheMissTokens,
+          }));
+        } else if (event.type === "tool_result" && event.diff) {
+          setDiffs((current) => {
+            const index = current.findIndex(
+              (diff) => diff.path === event.diff?.path,
+            );
+            if (index === -1) {
+              return [...current, event.diff!];
+            }
+            return current.map((diff, i) => (i === index ? event.diff! : diff));
+          });
         }
       }),
     [bus],
   );
 
-  useEffect(() => {
-    const timer = setTimeout(() => {
-      setShowSplash(false);
-    }, 2_200);
-    return () => clearTimeout(timer);
-  }, []);
-
-  useInput((_input, key) => {
-    if (key.tab) {
-      setFocused((current) => (current === "llm" ? "tool" : "llm"));
+  useInput((input, key) => {
+    if (input === "[") {
+      setDiffFocus((current) => Math.max(0, current - 1));
       return;
     }
-
-    if (key.upArrow || key.downArrow || key.pageUp || key.pageDown) {
-      const delta = key.upArrow || key.pageUp ? -1 : 1;
-      const step = key.pageUp || key.pageDown ? 5 : 1;
-      if (focused === "llm") {
-        setLlmOffset((current) => Math.max(0, current + delta * step));
-      } else {
-        setToolOffset((current) => Math.max(0, current + delta * step));
-      }
+    if (input === "]") {
+      setDiffFocus((current) =>
+        Math.min(Math.max(0, diffs.length - 1), current + 1),
+      );
+      return;
+    }
+    if (input === "f") {
+      setExpandedDiffs((current) => {
+        const next = new Set(current);
+        if (next.has(diffFocus)) {
+          next.delete(diffFocus);
+        } else {
+          next.add(diffFocus);
+        }
+        return next;
+      });
+      return;
+    }
+    if (key.upArrow || key.downArrow) {
+      const delta = key.upArrow ? -1 : 1;
+      setDiffOffsets((current) => {
+        const next = [...current];
+        next[diffFocus] = Math.max(0, (next[diffFocus] ?? 0) + delta);
+        return next;
+      });
+      return;
+    }
+    if (key.return) {
+      setCommand("");
+      return;
+    }
+    if (key.backspace) {
+      setCommand((current) => current.slice(0, -1));
+      return;
+    }
+    if (input && !key.ctrl && !key.meta) {
+      setCommand((current) => `${current}${input}`);
     }
   });
-
-  const llmLines = snapshot.llm
-    ? renderMarkdownLineNodes(snapshot.llm, contentWidth)
-    : [<Text key="llm-empty">Waiting for planner...</Text>];
-  const toolLines =
-    snapshot.toolOutput || snapshot.toolError
-      ? renderToolLines(snapshot, contentWidth)
-      : [<Text key="tool-empty">No tool activity yet</Text>];
 
   if (showSplash) {
     return (
@@ -131,94 +188,62 @@ function TuiApp({ bus }: TuiAppProps) {
   }
 
   return (
-    <Box flexDirection="column" paddingX={1}>
-      <Text bold color={stateColor(snapshot.state)}>
-        Reallity
-      </Text>
-      <Text color={stateColor(snapshot.state)}>
-        state: {snapshot.state}
-        {snapshot.running ? " • running" : " • done"}
-      </Text>
+    <Box flexDirection="row" paddingX={1}>
+      <Box flexDirection="column" width="46%">
+        <Text>{renderBanner("RL")}</Text>
+        <Panel title="AUTOMATED WORKFLOWS" color="cyan">
+          <WorkflowView state={snapshot.state} />
+        </Panel>
+        <Panel title="AGENT FSM STATUS" color="cyan">
+          <FsmView state={snapshot.state} />
+        </Panel>
+      </Box>
 
-      <Panel
-        title="LLM"
-        lines={llmLines}
-        height={10}
-        focused={focused === "llm"}
-        offset={llmOffset}
-        color={stateColor(snapshot.state)}
-      />
+      <Box flexDirection="column" flexGrow={1}>
+        <Panel title="LLM CONTEXT" color="blue">
+          <Text color="white">model: {model}</Text>
+          <Text color="white">mode: {mode}</Text>
+          <Text color="white">task: {task || "(no task)"}</Text>
+          {snapshot.llm ? (
+            <Text color="gray" wrap="truncate">
+              {truncateText(snapshot.llm, contentWidth - 6)}
+            </Text>
+          ) : null}
+        </Panel>
 
-      <Panel
-        title={snapshot.currentTool ? `Tool: ${snapshot.currentTool}` : "Tool"}
-        lines={toolLines}
-        height={8}
-        focused={focused === "tool"}
-        offset={toolOffset}
-        color={stateColor(snapshot.state)}
-      />
+        <Panel title="TOKEN STATISTICS" color="blue">
+          <TokenStats usage={usageTotals} limit={tokenLimit} />
+        </Panel>
 
-      {snapshot.diff ? (
-        <Box borderStyle="round" borderColor={stateColor(snapshot.state)} flexDirection="column" paddingX={1} marginBottom={1}>
-          <Text bold color="white">
-            Diff: {snapshot.diff.path}
-          </Text>
-          <Text color="red" wrap="truncate">
-            - {truncateText(snapshot.diff.oldText, contentWidth)}
-          </Text>
-          <Text color="green" wrap="truncate">
-            + {truncateText(snapshot.diff.newText, contentWidth)}
-          </Text>
+        <Panel title="FILE MODIFICATION DIFF" color="blue">
+          <DiffViewer
+            diffs={diffs}
+            expandedDiffs={expandedDiffs}
+            focus={diffFocus}
+            offsets={diffOffsets}
+            width={contentWidth - 6}
+          />
+        </Panel>
+
+        <Box borderStyle="round" borderColor="cyan" paddingX={1} marginTop={1}>
+          <Text color="green">{" > AgentCommand: "}</Text>
+          <Text color="white">{command}</Text>
+          <Text color="gray">█</Text>
         </Box>
-      ) : null}
-
-      {snapshot.usage ? (
-        <Text color="gray">
-          tokens {snapshot.usage.totalTokens} / prompt{" "}
-          {snapshot.usage.promptTokens} / completion{" "}
-          {snapshot.usage.completionTokens} / cache hit{" "}
-          {snapshot.usage.promptCacheHitTokens}
-        </Text>
-      ) : null}
-
-      <Text color="gray">events: {snapshot.events}</Text>
-      <Text color="gray">Tab to switch panel · ↑/↓ to scroll</Text>
+      </Box>
     </Box>
   );
 }
 
-interface PanelProps {
-  title: string;
-  lines: React.ReactNode[];
-  height: number;
-  focused: boolean;
-  offset: number;
-  color: string;
-}
-
 function Panel({
   title,
-  lines,
-  height,
-  focused,
-  offset,
   color,
-}: PanelProps) {
-  const maxOffset = Math.max(0, lines.length - height);
-  const clampedOffset = Math.min(offset, maxOffset);
-  const visible = lines.slice(clampedOffset, clampedOffset + height);
-  while (visible.length < height) {
-    visible.push(<Text key={`pad-${visible.length}`}> </Text>);
-  }
-  const thumbHeight = Math.max(
-    1,
-    Math.floor((height / Math.max(1, lines.length)) * height),
-  );
-  const thumbTop =
-    maxOffset === 0
-      ? 0
-      : Math.floor((clampedOffset / maxOffset) * (height - thumbHeight));
-
+  children,
+}: {
+  title: string;
+  color: string;
+  children: React.ReactNode;
+}) {
   return (
     <Box
       borderStyle="round"
@@ -227,33 +252,177 @@ function Panel({
       paddingX={1}
       marginY={1}
     >
-      <Text bold color="white">
+      <Text bold color={color}>
         {title}
       </Text>
-      <Box flexDirection="row">
-        <Box flexDirection="column" flexGrow={1}>
-          {visible}
-        </Box>
-        <Box flexDirection="column" width={1}>
-          {Array.from({ length: height }, (_, index) => (
-            <Text key={`scroll-${index}`} color={focused ? "green" : "gray"}>
-              {index >= thumbTop && index < thumbTop + thumbHeight
-                ? "█"
-                : "│"}
-            </Text>
-          ))}
-        </Box>
-      </Box>
-      <Text color={focused ? "green" : "gray"}>
-        {clampedOffset + 1}-{Math.min(lines.length, clampedOffset + height)} /{" "}
-        {lines.length}
-      </Text>
+      {children}
     </Box>
   );
 }
 
-export function startTUI(bus: EventBus): () => void {
-  const instance = render(<TuiApp bus={bus} />);
+function WorkflowView({ state }: { state: AgentState }) {
+  const steps: WorkflowStep[] = [
+    { label: "Plan", status: workflowStatus(state, "planner", "executor") },
+    {
+      label: "Analyze",
+      status: workflowStatus(state, "executor", "verify"),
+    },
+    {
+      label: "Generate",
+      status: workflowStatus(state, "verify", "commit"),
+    },
+    {
+      label: "Execute",
+      status: workflowStatus(state, "commit", "finish"),
+    },
+    {
+      label: "Done",
+      status: state === "finish" ? "done" : "pending",
+    },
+  ];
+
+  return (
+    <Box flexDirection="column">
+      {steps.map((step) => (
+        <Text key={step.label} color={statusColor(step.status)}>
+          {step.status === "done"
+            ? "✓"
+            : step.status === "active"
+              ? ">"
+              : " "}{" "}
+          {step.label}
+        </Text>
+      ))}
+    </Box>
+  );
+}
+
+function FsmView({ state }: { state: AgentState }) {
+  const status = fsmStatus(state);
+  const diagram = [
+    "IDLE ──▶ WORKING ──▶ DONE",
+    "   ▲         │         ",
+    "   │         ▼         ",
+    "   └── RETRYING ◀──── ERROR",
+  ];
+  return (
+    <Box flexDirection="column">
+      {diagram.map((line, index) => (
+        <Text key={index} color={index === 0 ? "cyan" : "gray"}>
+          {line}
+        </Text>
+      ))}
+      <Text color="yellow">current: {status}</Text>
+    </Box>
+  );
+}
+
+function TokenStats({ usage, limit }: { usage: LLMUsage; limit: number }) {
+  const cost = (usage.promptTokens / 1_000_000) * 3 + (usage.completionTokens / 1_000_000) * 15;
+  const remaining = Math.max(0, limit - usage.totalTokens);
+  return (
+    <Box flexDirection="column">
+      <Text color="white">prompt: {usage.promptTokens}</Text>
+      <Text color="white">completion: {usage.completionTokens}</Text>
+      <Text color="white">total: {usage.totalTokens}</Text>
+      <Text color="yellow">est cost: ${cost.toFixed(4)}</Text>
+      <Text color="gray">remaining: {remaining} / {limit}</Text>
+    </Box>
+  );
+}
+
+function DiffViewer({
+  diffs,
+  expandedDiffs,
+  focus,
+  offsets,
+  width,
+}: {
+  diffs: DiffView[];
+  expandedDiffs: Set<number>;
+  focus: number;
+  offsets: number[];
+  width: number;
+}) {
+  if (diffs.length === 0) {
+    return <Text color="gray">No file modifications yet</Text>;
+  }
+
+  return (
+    <Box flexDirection="column">
+      {diffs.map((diff, index) => {
+        const expanded = expandedDiffs.has(index);
+        const lines = [
+          ...diff.oldText.split("\n").map((line) => ({ text: `- ${line}`, color: "red" })),
+          ...diff.newText.split("\n").map((line) => ({ text: `+ ${line}`, color: "green" })),
+        ];
+        const offset = Math.min(offsets[index] ?? 0, Math.max(0, lines.length - 6));
+        const visible = lines.slice(offset, offset + 6);
+        return (
+          <Box flexDirection="column" key={`${diff.path}-${index}`}>
+            <Text color={index === focus ? "cyan" : "gray"}>
+              {expanded ? "[-] " : "[+] "}
+              {diff.path} · {diff.oldText.split("\n").length + diff.newText.split("\n").length} lines
+            </Text>
+            {expanded ? (
+              <Box flexDirection="column">
+                {visible.map((line, lineIndex) => (
+                  <Text key={lineIndex} color={line.color} wrap="truncate">
+                    {truncateText(line.text, width)}
+                  </Text>
+                ))}
+                <Text color="gray">
+                  {offset + 1}-{Math.min(lines.length, offset + 6)} / {lines.length}
+                </Text>
+              </Box>
+            ) : null}
+          </Box>
+        );
+      })}
+      <Text color="gray">[ ] move focus · f fold · ↑/↓ scroll diff</Text>
+    </Box>
+  );
+}
+
+function workflowStatus(
+  state: AgentState,
+  activeState: AgentState,
+  doneAfterState: AgentState,
+): WorkflowStep["status"] {
+  if (state === activeState) return "active";
+  if (stateOrder(state) >= stateOrder(doneAfterState)) return "done";
+  return "pending";
+}
+
+function stateOrder(state: AgentState): number {
+  return ["init", "planner", "executor", "verify", "commit", "finish", "rollback"].indexOf(
+    state,
+  );
+}
+
+function fsmStatus(state: AgentState): string {
+  if (state === "finish") return "DONE";
+  if (state === "rollback") return "RETRYING";
+  if (state === "init") return "IDLE";
+  return "WORKING";
+}
+
+function statusColor(status: WorkflowStep["status"]): string {
+  if (status === "active") return "green";
+  if (status === "done") return "cyan";
+  return "gray";
+}
+
+export function startTUI(
+  bus: EventBus,
+  options: {
+    model?: string;
+    mode?: string;
+    task?: string;
+    tokenLimit?: number;
+  } = {},
+): () => void {
+  const instance = render(<TuiApp bus={bus} {...options} />);
   return () => {
     instance.unmount();
   };
@@ -287,10 +456,7 @@ export function cleanLlmText(content: string): string {
 
 export function tailLines(content: string, maxLines: number): string {
   const lines = content.split("\n");
-  if (lines.length <= maxLines) {
-    return content;
-  }
-
+  if (lines.length <= maxLines) return content;
   const omitted = lines.length - maxLines;
   return [
     `... [${omitted} earlier lines hidden]`,
@@ -298,174 +464,22 @@ export function tailLines(content: string, maxLines: number): string {
   ].join("\n");
 }
 
-function formatToolArgs(args: Record<string, unknown>): string {
-  const entries = Object.entries(args).map(([key, value]) => {
-    const text = typeof value === "string" ? value : JSON.stringify(value);
-    return `${key}: ${text}`;
-  });
-  return entries.join(" | ");
-}
-
-function renderMarkdownLineNodes(
-  content: string,
-  maxWidth: number,
-): React.ReactNode[] {
-  const lines = content.split("\n");
-  const nodes: React.ReactNode[] = [];
-  let inCodeBlock = false;
-  let tableLines: string[] = [];
-
-  const flushTable = () => {
-    if (tableLines.length === 0) {
-      return;
-    }
-    nodes.push(
-      <Table
-        key={`table-${nodes.length}`}
-        data={parseMarkdownTableData(tableLines)}
-        cell={({ children }: { column: number; children?: React.ReactNode }) => (
-          <Text wrap="truncate">
-            {truncateText(String(children ?? ""), maxWidth)}
-          </Text>
-        )}
-        header={({
-          children,
-        }: React.PropsWithChildren<Record<string, unknown>>) => (
-          <Text bold color="cyan" wrap="truncate">
-            {truncateText(String(children ?? ""), maxWidth)}
-          </Text>
-        )}
-      />,
-    );
-    tableLines = [];
-  };
-
-  for (let index = 0; index < lines.length; index += 1) {
-    const line = lines[index];
-    if (line.trim().startsWith("```")) {
-      flushTable();
-      inCodeBlock = !inCodeBlock;
-      continue;
-    }
-
-    if (inCodeBlock) {
-      flushTable();
-      nodes.push(
-        <Text key={`code-${index}`} color="yellow" wrap="truncate">
-          {truncateText(line, maxWidth)}
-        </Text>,
-      );
-      continue;
-    }
-
-    if (/^\s*\|.*\|\s*$/.test(line)) {
-      tableLines.push(line);
-      continue;
-    }
-
-    flushTable();
-
-    if (/^#{1,6}\s+/.test(line)) {
-      nodes.push(
-        <Text key={`h-${index}`} bold color="cyan" wrap="truncate">
-          {truncateText(
-            cleanInlineMarkdown(line.replace(/^#{1,6}\s+/, "")),
-            maxWidth,
-          )}
-        </Text>,
-      );
-      continue;
-    }
-
-    nodes.push(
-      <Text key={`line-${index}`} wrap="truncate">
-        {truncateText(cleanInlineMarkdown(line), maxWidth)}
-      </Text>,
-    );
-  }
-
-  flushTable();
-  return nodes;
-}
-
-function renderToolLines(
-  snapshot: TuiSnapshot,
-  maxWidth: number,
-): React.ReactNode[] {
-  const lines: React.ReactNode[] = [];
-  if (snapshot.toolArgs) {
-    lines.push(
-      <Text key="tool-args" color="gray" wrap="truncate">
-        {truncateText(formatToolArgs(snapshot.toolArgs), maxWidth)}
-      </Text>,
-    );
-  }
-  if (snapshot.toolOutput) {
-    lines.push(
-      ...snapshot.toolOutput.split("\n").map((line, index) => (
-        <Text key={`out-${index}`} wrap="truncate">
-          {truncateText(line, maxWidth)}
-        </Text>
-      )),
-    );
-  }
-  if (snapshot.toolError) {
-    lines.push(
-      ...snapshot.toolError.split("\n").map((line, index) => (
-        <Text key={`err-${index}`} color="red" wrap="truncate">
-          {truncateText(line, maxWidth)}
-        </Text>
-      )),
-    );
-  }
-  return lines;
-}
-
-function cleanInlineMarkdown(content: string): string {
-  return content
-    .replace(/\*\*([^*]+)\*\*/g, "$1")
-    .replace(/`([^`]+)`/g, "$1")
-    .replace(/^\s*>+\s?/, "");
-}
-
-function truncateText(content: string, maxWidth: number): string {
-  if (content.length <= maxWidth) {
-    return content;
-  }
-  return `${content.slice(0, Math.max(1, maxWidth - 1))}…`;
-}
-
 export function formatMarkdownTable(lines: string[]): string[] {
   const rows = lines
     .map((line) => line.trim().replace(/^\|/, "").replace(/\|$/, ""))
     .filter((line) => line.length > 0)
     .map((line) =>
-      line
-        .split("|")
-        .map((cell) => cleanInlineMarkdown(cell.trim())),
+      line.split("|").map((cell) => cleanInlineMarkdown(cell.trim())),
     )
-    .filter(
-      (row) => !row.every((cell) => /^:?-+:?$/.test(cell)),
-    );
-
-  if (rows.length === 0) {
-    return [];
-  }
-
+    .filter((row) => !row.every((cell) => /^:?-+:?$/.test(cell)));
+  if (rows.length === 0) return [];
   const columnCount = Math.max(...rows.map((row) => row.length));
   const widths = Array.from({ length: columnCount }, (_, column) =>
-    Math.max(
-      1,
-      ...rows.map((row) => (row[column] ?? "").length),
-    ),
+    Math.max(1, ...rows.map((row) => (row[column] ?? "").length)),
   );
-
   const formatRow = (row: string[]) =>
-    `| ${row
-      .map((cell, index) => (cell ?? "").padEnd(widths[index] ?? 1))
-      .join(" | ")} |`;
+    `| ${row.map((cell, index) => (cell ?? "").padEnd(widths[index] ?? 1)).join(" | ")} |`;
   const separator = `| ${widths.map((width) => "-".repeat(width)).join(" | ")} |`;
-
   return [
     formatRow(rows[0]),
     separator,
@@ -480,18 +494,10 @@ export function parseMarkdownTableData(
     .map((line) => line.trim().replace(/^\|/, "").replace(/\|$/, ""))
     .filter((line) => line.length > 0)
     .map((line) =>
-      line
-        .split("|")
-        .map((cell) => cleanInlineMarkdown(cell.trim())),
+      line.split("|").map((cell) => cleanInlineMarkdown(cell.trim())),
     )
-    .filter(
-      (row) => !row.every((cell) => /^:?-+:?$/.test(cell)),
-    );
-
-  if (rows.length === 0) {
-    return [];
-  }
-
+    .filter((row) => !row.every((cell) => /^:?-+:?$/.test(cell)));
+  if (rows.length === 0) return [];
   const [header, ...body] = rows;
   return body.map((row) => {
     const item: Record<string, string> = {};
@@ -500,4 +506,16 @@ export function parseMarkdownTableData(
     });
     return item;
   });
+}
+
+function cleanInlineMarkdown(content: string): string {
+  return content
+    .replace(/\*\*([^*]+)\*\*/g, "$1")
+    .replace(/`([^`]+)`/g, "$1")
+    .replace(/^\s*>+\s?/, "");
+}
+
+function truncateText(content: string, maxWidth: number): string {
+  if (content.length <= maxWidth) return content;
+  return `${content.slice(0, Math.max(1, maxWidth - 1))}…`;
 }
