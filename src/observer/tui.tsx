@@ -313,15 +313,9 @@ function renderMarkdownLineNodes(content: string): React.ReactNode[] {
     if (tableLines.length === 0) {
       return;
     }
-    for (const [tableIndex, tableLine] of formatMarkdownTable(
-      tableLines,
-    ).entries()) {
-      nodes.push(
-        <Text key={`table-${tableIndex}`} wrap="truncate" color="gray">
-          {tableLine}
-        </Text>,
-      );
-    }
+    nodes.push(
+      <MarkdownTable key={`table-${nodes.length}`} lines={tableLines} />,
+    );
     tableLines = [];
   };
 
@@ -368,6 +362,30 @@ function renderMarkdownLineNodes(content: string): React.ReactNode[] {
 
   flushTable();
   return nodes;
+}
+
+function MarkdownTable({ lines }: { lines: string[] }) {
+  const [TableComponent, setTableComponent] = useState<
+    React.ComponentType<{ data: Array<Record<string, string>> }> | null
+  >(null);
+
+  useEffect(() => {
+    let active = true;
+    import("ink-table").then((module) => {
+      if (active) {
+        setTableComponent(() => module.default);
+      }
+    });
+    return () => {
+      active = false;
+    };
+  }, []);
+
+  if (!TableComponent) {
+    return <Text color="gray">Rendering table...</Text>;
+  }
+
+  return <TableComponent data={parseMarkdownTableData(lines)} />;
 }
 
 function renderToolLines(snapshot: TuiSnapshot): React.ReactNode[] {
@@ -443,4 +461,33 @@ export function formatMarkdownTable(lines: string[]): string[] {
     separator,
     ...rows.slice(1).map((row) => formatRow(row)),
   ];
+}
+
+export function parseMarkdownTableData(
+  lines: string[],
+): Array<Record<string, string>> {
+  const rows = lines
+    .map((line) => line.trim().replace(/^\|/, "").replace(/\|$/, ""))
+    .filter((line) => line.length > 0)
+    .map((line) =>
+      line
+        .split("|")
+        .map((cell) => cleanInlineMarkdown(cell.trim())),
+    )
+    .filter(
+      (row) => !row.every((cell) => /^:?-+:?$/.test(cell)),
+    );
+
+  if (rows.length === 0) {
+    return [];
+  }
+
+  const [header, ...body] = rows;
+  return body.map((row) => {
+    const item: Record<string, string> = {};
+    header.forEach((column, index) => {
+      item[column || `col${index}`] = row[index] ?? "";
+    });
+    return item;
+  });
 }

@@ -2,6 +2,7 @@ import { test, expect } from "bun:test";
 import {
   cleanLlmText,
   formatMarkdownTable,
+  parseMarkdownTableData,
   stateColor,
   tailLines,
 } from "../../src/observer/tui.tsx";
@@ -61,4 +62,14 @@ test("formatMarkdownTable aligns markdown table columns", () => {
   expect(result[0]).toBe("| A | B  |");
   expect(result[1]).toContain("| -");
   expect(result[2]).toBe("| 1 | 22 |");
+});
+
+test("parseMarkdownTableData converts markdown table to structured rows", () => {
+  const result = parseMarkdownTableData([
+    "| Name | Age |",
+    "|------|-----|",
+    "| Ada  | 36  |",
+  ]);
+
+  expect(result).toEqual([{ Name: "Ada", Age: "36" }]);
 });
