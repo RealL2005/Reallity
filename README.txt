@@ -1,0 +1,22 @@
+Reallity：原生编程智能体 Harness
+
+Git 仓库：https://github.com/RealL2005/Reallity
+
+单条命令运行：
+bun install && REALLITY_API_KEY=你的密钥 REALLITY_MODEL=你的模型 bun run src/cli.ts --mode tui --task "你的编程任务"
+
+说明：本项目不依赖任何 Agent 框架/SDK，也不使用服务端托管代码执行。核心循环、上下文管理、工具定义与执行、模型输出解析、终止条件与错误处理均为手写实现。凭据只通过环境变量提供。
+
+运行模式：
+1. TUI：--mode tui，终端分屏显示状态、流式日志、工具调用与验证结果。
+2. WebUI：--mode web，启动本地服务后打开 http://127.0.0.1:3000 提交任务并查看 JSON 结果。
+3. Headless：--mode headless，适合脚本与测试。
+
+特色功能：
+1. 手写 FSM 状态机：Init、Planner、Executor、Verify、Commit、Rollback、Finish，禁止从工具执行直接跳到完成。
+2. Plan-Execute 双层规划：Planner 生成 Checklist，Executor 只处理当前子任务，避免目标漂移。
+3. TDD 自愈：Verify 阶段强制运行 bun test；失败时解析文件名、行号、期望/实际值，回灌模型继续修复。
+4. 熔断与回滚：同类错误连续 3 次触发熔断，自动 git checkout . 恢复干净状态并重新规划。
+5. AST 护栏：edit_file 修改 .ts/.tsx/.js/.jsx 文件前用 TypeScript AST 做语法诊断，语法错误拒绝写入；同时强制 Search/Replace 唯一匹配与 workspace 路径越界拦截。
+6. 工具集：read_file、edit_file、bash、list_dir、glob。bash 注入非交互环境变量，30 秒超时并销毁进程树。
+7. 可观测性：EventBus 实时记录事件，任务结束生成 trace.html，内含 Mermaid FSM 决策 DAG。

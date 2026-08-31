@@ -221,6 +221,42 @@ git commit -m "chore: scaffold Bun/TypeScript project"
 
 ---
 
+## Task 9.5: Core agent orchestration
+
+**Files:**
+- Create: `src/agent.ts`
+- Modify: `src/governance/checkpoint.ts`
+- Test: `tests/agent.test.ts`, `tests/governance/checkpoint.test.ts`
+
+**Interfaces:**
+- Produces: `ReallityAgent` with `run(task)`, checkpoint `diff()` and `commitAll()`.
+
+- [ ] Write failing tests for plan/execute/verify/commit and checkpoint diff/commit.
+- [ ] Run tests and verify failures.
+- [ ] Implement orchestration loop.
+- [ ] Run tests and verify pass.
+- [ ] Commit.
+
+---
+
+## Task 9.6: AST guardrail
+
+**Files:**
+- Create: `src/guards/ast.ts`
+- Modify: `src/tools/executor.ts`
+- Test: `tests/guards/ast.test.ts`, `tests/tools/executor.test.ts`
+
+**Interfaces:**
+- Produces: `isCodeFile`, `analyzeSource`, `analyzeFile`; `edit_file` rejects invalid JS/TS syntax before writing.
+
+- [ ] Write failing tests for valid/invalid TypeScript analysis and executor rejection.
+- [ ] Run tests and verify failures.
+- [ ] Implement guardrail and integrate with edit_file.
+- [ ] Run tests and verify pass.
+- [ ] Commit.
+
+---
+
 ## Task 10: WebUI and CLI entrypoint
 
 **Files:**

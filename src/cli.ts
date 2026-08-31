@@ -150,3 +150,7 @@ const HELP_TEXT = [
   "  -h, --help    show help",
   "  -V, --version show version",
 ].join("\n");
+
+if (import.meta.main) {
+  process.exit(await runCli());
+}
