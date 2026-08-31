@@ -1,5 +1,5 @@
 import React, { useEffect, useState } from "react";
-import { render, Box, Text, useInput } from "ink";
+import { render, Box, Text, useInput, useStdout } from "ink";
 import { renderBanner } from "../banner.ts";
 import type { EventBus } from "./events.ts";
 import type { AgentState } from "../fsm/types.ts";
@@ -30,6 +30,8 @@ interface TuiSnapshot {
 }
 
 function TuiApp({ bus }: TuiAppProps) {
+  const { stdout } = useStdout();
+  const contentWidth = Math.max(20, stdout.columns - 8);
   const [showSplash, setShowSplash] = useState(true);
   const [snapshot, setSnapshot] = useState<TuiSnapshot>({
     state: "init",
@@ -111,11 +113,11 @@ function TuiApp({ bus }: TuiAppProps) {
   });
 
   const llmLines = snapshot.llm
-    ? renderMarkdownLineNodes(snapshot.llm)
+    ? renderMarkdownLineNodes(snapshot.llm, contentWidth)
     : [<Text key="llm-empty">Waiting for planner...</Text>];
   const toolLines =
     snapshot.toolOutput || snapshot.toolError
-      ? renderToolLines(snapshot)
+      ? renderToolLines(snapshot, contentWidth)
       : [<Text key="tool-empty">No tool activity yet</Text>];
 
   if (showSplash) {
@@ -303,7 +305,10 @@ function formatToolArgs(args: Record<string, unknown>): string {
   return entries.join(" | ");
 }
 
-function renderMarkdownLineNodes(content: string): React.ReactNode[] {
+function renderMarkdownLineNodes(
+  content: string,
+  maxWidth: number,
+): React.ReactNode[] {
   const lines = content.split("\n");
   const nodes: React.ReactNode[] = [];
   let inCodeBlock = false;
@@ -314,7 +319,11 @@ function renderMarkdownLineNodes(content: string): React.ReactNode[] {
       return;
     }
     nodes.push(
-      <MarkdownTable key={`table-${nodes.length}`} lines={tableLines} />,
+      <MarkdownTable
+        key={`table-${nodes.length}`}
+        lines={tableLines}
+        maxWidth={maxWidth}
+      />,
     );
     tableLines = [];
   };
@@ -331,7 +340,7 @@ function renderMarkdownLineNodes(content: string): React.ReactNode[] {
       flushTable();
       nodes.push(
         <Text key={`code-${index}`} color="yellow" wrap="truncate">
-          {line}
+          {truncateText(line, maxWidth)}
         </Text>,
       );
       continue;
@@ -347,7 +356,10 @@ function renderMarkdownLineNodes(content: string): React.ReactNode[] {
     if (/^#{1,6}\s+/.test(line)) {
       nodes.push(
         <Text key={`h-${index}`} bold color="cyan" wrap="truncate">
-          {cleanInlineMarkdown(line.replace(/^#{1,6}\s+/, ""))}
+          {truncateText(
+            cleanInlineMarkdown(line.replace(/^#{1,6}\s+/, "")),
+            maxWidth,
+          )}
         </Text>,
       );
       continue;
@@ -355,7 +367,7 @@ function renderMarkdownLineNodes(content: string): React.ReactNode[] {
 
     nodes.push(
       <Text key={`line-${index}`} wrap="truncate">
-        {cleanInlineMarkdown(line)}
+        {truncateText(cleanInlineMarkdown(line), maxWidth)}
       </Text>,
     );
   }
@@ -364,9 +376,15 @@ function renderMarkdownLineNodes(content: string): React.ReactNode[] {
   return nodes;
 }
 
-function MarkdownTable({ lines }: { lines: string[] }) {
+function MarkdownTable({
+  lines,
+  maxWidth,
+}: {
+  lines: string[];
+  maxWidth: number;
+}) {
   const [TableComponent, setTableComponent] = useState<
-    React.ComponentType<{ data: Array<Record<string, string>> }> | null
+    React.ComponentType<any> | null
   >(null);
 
   useEffect(() => {
@@ -385,15 +403,27 @@ function MarkdownTable({ lines }: { lines: string[] }) {
     return <Text color="gray">Rendering table...</Text>;
   }
 
-  return <TableComponent data={parseMarkdownTableData(lines)} />;
+  return (
+    <Box width={maxWidth}>
+      <TableComponent
+        data={parseMarkdownTableData(lines)}
+        cell={({ children }: { children: React.ReactNode }) => (
+          <Text wrap="truncate">{children}</Text>
+        )}
+      />
+    </Box>
+  );
 }
 
-function renderToolLines(snapshot: TuiSnapshot): React.ReactNode[] {
+function renderToolLines(
+  snapshot: TuiSnapshot,
+  maxWidth: number,
+): React.ReactNode[] {
   const lines: React.ReactNode[] = [];
   if (snapshot.toolArgs) {
     lines.push(
       <Text key="tool-args" color="gray" wrap="truncate">
-        {formatToolArgs(snapshot.toolArgs)}
+        {truncateText(formatToolArgs(snapshot.toolArgs), maxWidth)}
       </Text>,
     );
   }
@@ -401,7 +431,7 @@ function renderToolLines(snapshot: TuiSnapshot): React.ReactNode[] {
     lines.push(
       ...snapshot.toolOutput.split("\n").map((line, index) => (
         <Text key={`out-${index}`} wrap="truncate">
-          {line}
+          {truncateText(line, maxWidth)}
         </Text>
       )),
     );
@@ -410,7 +440,7 @@ function renderToolLines(snapshot: TuiSnapshot): React.ReactNode[] {
     lines.push(
       ...snapshot.toolError.split("\n").map((line, index) => (
         <Text key={`err-${index}`} color="red" wrap="truncate">
-          {line}
+          {truncateText(line, maxWidth)}
         </Text>
       )),
     );
@@ -423,6 +453,13 @@ function cleanInlineMarkdown(content: string): string {
     .replace(/\*\*([^*]+)\*\*/g, "$1")
     .replace(/`([^`]+)`/g, "$1")
     .replace(/^\s*>+\s?/, "");
+}
+
+function truncateText(content: string, maxWidth: number): string {
+  if (content.length <= maxWidth) {
+    return content;
+  }
+  return `${content.slice(0, Math.max(1, maxWidth - 1))}…`;
 }
 
 export function formatMarkdownTable(lines: string[]): string[] {
