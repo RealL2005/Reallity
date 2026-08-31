@@ -1,0 +1,38 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>Reallity</title>
+  <style>
+    body { font-family: system-ui, sans-serif; max-width: 720px; margin: 3rem auto; padding: 0 1rem; background: #111; color: #eee; }
+    textarea, input { width: 100%; box-sizing: border-box; margin-bottom: 1rem; background: #1c1c1c; color: #eee; border: 1px solid #444; padding: .75rem; }
+    button { padding: .6rem 1rem; background: #2563eb; color: white; border: 0; border-radius: 4px; cursor: pointer; }
+    pre { white-space: pre-wrap; background: #1c1c1c; padding: 1rem; border-radius: 6px; }
+  </style>
+</head>
+<body>
+  <h1>Reallity</h1>
+  <p>Turn your natural language prompt into working code.</p>
+  <form id="run-form">
+    <textarea id="task" rows="5" placeholder="Describe a coding task..."></textarea>
+    <button type="submit">Run task</button>
+  </form>
+  <pre id="result">Idle</pre>
+  <script>
+    const form = document.getElementById("run-form");
+    const result = document.getElementById("result");
+    form.addEventListener("submit", async (event) => {
+      event.preventDefault();
+      const task = document.getElementById("task").value;
+      result.textContent = "Running...";
+      const response = await fetch("/api/run", {
+        method: "POST",
+        headers: { "content-type": "application/json" },
+        body: JSON.stringify({ task })
+      });
+      result.textContent = JSON.stringify(await response.json(), null, 2);
+    });
+  </script>
+</body>
+</html>
