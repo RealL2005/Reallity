@@ -21,7 +21,7 @@ test("parseCliArgs parses explicit web mode options", () => {
   });
 });
 
-test("parseCliArgs uses headless defaults", () => {
+test("parseCliArgs uses tui defaults", () => {
   const keys = [
     "REALLITY_MODEL",
     "REALLITY_BASE_URL",
@@ -38,7 +38,7 @@ test("parseCliArgs uses headless defaults", () => {
     const parsed = parseCliArgs([]);
 
     expect(parsed).toMatchObject({
-      mode: "headless",
+      mode: "tui",
       task: "",
       workspace: process.cwd(),
       port: 3000,

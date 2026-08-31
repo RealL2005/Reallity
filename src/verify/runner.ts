@@ -34,7 +34,7 @@ export async function runBunTests(
   workspaceRoot: string,
   options: RunBunTestsOptions = {},
 ): Promise<VerificationResult> {
-  const bunCommand = options.bunCommand ?? "bun";
+  const bunCommand = options.bunCommand ?? process.execPath;
   const args = options.args ?? ["test"];
 
   return runCommand(bunCommand, args, workspaceRoot, options.timeoutMs ?? 30_000).then(

@@ -23,7 +23,7 @@ export interface CliOptions {
 
 export function parseCliArgs(argv: string[]): CliOptions {
   const options: CliOptions = {
-    mode: "headless",
+    mode: "tui",
     task: "",
     workspace: process.env.REALLITY_WORKSPACE?.trim() || process.cwd(),
     model: process.env.REALLITY_MODEL?.trim() || "gpt-4.1-mini",
@@ -154,10 +154,10 @@ function parseMode(value: string | undefined): CliMode {
 const HELP_TEXT = [
   "Reallity - native coding agent harness",
   "",
-  "Usage: bun run src/cli.ts --mode <headless|tui|web> --task \"...\"",
+  "Usage: bun run src/cli.ts --mode <tui|headless|web> --task \"...\"",
   "",
   "Options:",
-  "  --mode        headless, tui, or web (default: headless)",
+  "  --mode        tui, headless, or web (default: tui)",
   "  --task        the coding task to run",
   "  --workspace   workspace directory (default: current directory)",
   "  --model       model name (env: REALLITY_MODEL)",
