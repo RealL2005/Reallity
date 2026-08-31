@@ -164,10 +164,10 @@ function TuiApp({ bus }: TuiAppProps) {
             Diff: {snapshot.diff.path}
           </Text>
           <Text color="red" wrap="truncate">
-            - {snapshot.diff.oldText}
+            - {truncateText(snapshot.diff.oldText, contentWidth)}
           </Text>
           <Text color="green" wrap="truncate">
-            + {snapshot.diff.newText}
+            + {truncateText(snapshot.diff.newText, contentWidth)}
           </Text>
         </Box>
       ) : null}
@@ -323,6 +323,18 @@ function renderMarkdownLineNodes(
       <Table
         key={`table-${nodes.length}`}
         data={parseMarkdownTableData(tableLines)}
+        cell={({ children }: { column: number; children?: React.ReactNode }) => (
+          <Text wrap="truncate">
+            {truncateText(String(children ?? ""), maxWidth)}
+          </Text>
+        )}
+        header={({
+          children,
+        }: React.PropsWithChildren<Record<string, unknown>>) => (
+          <Text bold color="cyan" wrap="truncate">
+            {truncateText(String(children ?? ""), maxWidth)}
+          </Text>
+        )}
       />,
     );
     tableLines = [];
