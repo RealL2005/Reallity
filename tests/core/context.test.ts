@@ -115,3 +115,47 @@ test("ContextManager truncation preserves system message and drops oldest turns"
   expect(messages[1].content).toBe("second");
   expect(messages.at(-1)?.content).toBe("fifth");
 });
+
+test("truncation never leaves an assistant tool_calls without matching tool messages", () => {
+  const manager = new ContextManager({
+    systemPrompt: "system",
+    maxHistoryMessages: 7,
+  });
+  manager.appendUser("start");
+
+  for (let index = 0; index < 10; index += 1) {
+    manager.appendAssistant("", [
+      {
+        id: `call_${index}`,
+        type: "function",
+        function: { name: "read_file", arguments: "{}" },
+      },
+    ]);
+    manager.appendTool(`call_${index}`, "read_file", "ok");
+  }
+
+  const messages = manager.serializeOpenAI();
+
+  expect(toolContinuityIsValid(messages)).toBe(true);
+});
+
+function toolContinuityIsValid(
+  messages: ReturnType<ContextManager["serializeOpenAI"]>,
+): boolean {
+  const pendingIds = new Set<string>();
+
+  for (const message of messages) {
+    if (message.role === "assistant" && message.tool_calls) {
+      for (const call of message.tool_calls) {
+        pendingIds.add(call.id);
+      }
+    } else if (message.role === "tool") {
+      if (!pendingIds.has(message.tool_call_id ?? "")) {
+        return false;
+      }
+      pendingIds.delete(message.tool_call_id ?? "");
+    }
+  }
+
+  return pendingIds.size === 0;
+}

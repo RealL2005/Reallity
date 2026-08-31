@@ -150,7 +150,10 @@ export class ContextManager {
   }
 
   serializeOpenAI(): OpenAIMessage[] {
-    return [{ role: "system", content: this.systemPrompt }, ...this.history];
+    return [
+      { role: "system", content: this.systemPrompt },
+      ...sanitizeToolHistory(this.history),
+    ];
   }
 
   private truncateHistory(): void {
@@ -160,4 +163,60 @@ export class ContextManager {
 
     this.history = this.history.slice(-this.maxHistoryMessages);
   }
+}
+
+function sanitizeToolHistory(history: OpenAIMessage[]): OpenAIMessage[] {
+  const sanitized: OpenAIMessage[] = [];
+  let index = 0;
+
+  while (index < history.length) {
+    const message = history[index];
+
+    if (message.role === "assistant" && message.tool_calls?.length) {
+      const toolIds = message.tool_calls.map((call) => call.id);
+      let next = index + 1;
+      const toolMessages: OpenAIMessage[] = [];
+
+      while (next < history.length && history[next].role === "tool") {
+        toolMessages.push(history[next]);
+        next += 1;
+      }
+
+      const toolResultIds = toolMessages.map(
+        (toolMessage) => toolMessage.tool_call_id ?? "",
+      );
+      const everyResultMatches = toolResultIds.every((id) =>
+        toolIds.includes(id),
+      );
+      const everyCallHasResult = toolIds.every(
+        (id) => toolResultIds.filter((resultId) => resultId === id).length === 1,
+      );
+
+      if (
+        everyResultMatches &&
+        everyCallHasResult &&
+        toolResultIds.length === toolIds.length
+      ) {
+        sanitized.push(message, ...toolMessages);
+      } else {
+        sanitized.push({
+          role: "assistant",
+          content: message.content,
+        });
+      }
+
+      index = next;
+      continue;
+    }
+
+    if (message.role === "tool") {
+      index += 1;
+      continue;
+    }
+
+    sanitized.push(message);
+    index += 1;
+  }
+
+  return sanitized;
 }
