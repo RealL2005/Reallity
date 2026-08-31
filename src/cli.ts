@@ -6,6 +6,7 @@ import { startTUI } from "./observer/tui.tsx";
 import { startWebUI } from "./web/server.ts";
 import { loadEnvFile } from "./config.ts";
 import { TOOL_SCHEMAS } from "./tools/schemas.ts";
+import { renderBanner } from "./banner.ts";
 
 export type CliMode = "headless" | "tui" | "web";
 
@@ -81,6 +82,8 @@ export async function runCli(argv: string[] = process.argv.slice(2)): Promise<nu
     console.log(VERSION);
     return 0;
   }
+
+  console.log(renderBanner("Reallity"));
 
   const apiKey = process.env.REALLITY_API_KEY ?? process.env.OPENAI_API_KEY;
   if (!apiKey) {
