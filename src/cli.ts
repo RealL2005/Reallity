@@ -4,6 +4,7 @@ import { ReallityAgent } from "./agent.ts";
 import { EventBus } from "./observer/events.ts";
 import { startTUI } from "./observer/tui.tsx";
 import { startWebUI } from "./web/server.ts";
+import { loadEnvFile } from "./config.ts";
 
 export type CliMode = "headless" | "tui" | "web";
 
@@ -22,10 +23,10 @@ export function parseCliArgs(argv: string[]): CliOptions {
   const options: CliOptions = {
     mode: "headless",
     task: "",
-    workspace: process.cwd(),
+    workspace: process.env.REALLITY_WORKSPACE ?? process.cwd(),
     model: process.env.REALLITY_MODEL ?? "gpt-4.1-mini",
     baseURL: process.env.REALLITY_BASE_URL ?? "https://api.openai.com/v1",
-    port: 3000,
+    port: Number(process.env.REALLITY_PORT ?? 3000),
     showHelp: false,
     showVersion: false,
   };
@@ -66,6 +67,7 @@ export function parseCliArgs(argv: string[]): CliOptions {
 }
 
 export async function runCli(argv: string[] = process.argv.slice(2)): Promise<number> {
+  loadEnvFile();
   const options = parseCliArgs(argv);
 
   if (options.showHelp) {

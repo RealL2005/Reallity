@@ -2,8 +2,13 @@ Reallity：原生编程智能体 Harness
 
 Git 仓库：https://github.com/RealL2005/Reallity
 
-单条命令运行：
-bun install && REALLITY_API_KEY=你的密钥 REALLITY_MODEL=你的模型 bun run src/cli.ts --mode tui --task "你的编程任务"
+快速运行：
+1. 复制 .env.example 为 .env，并填写 REALLITY_API_KEY（以及可选的 BASE_URL、MODEL、WORKSPACE、PORT）。
+2. bun install
+3. bun run src/cli.ts --mode tui --task "你的编程任务"
+
+WebUI：bun run src/cli.ts --mode web --task "你的编程任务"
+Headless：bun run src/cli.ts --mode headless --task "你的编程任务"
 
 说明：本项目不依赖任何 Agent 框架/SDK，也不使用服务端托管代码执行。核心循环、上下文管理、工具定义与执行、模型输出解析、终止条件与错误处理均为手写实现。凭据只通过环境变量提供。
 
