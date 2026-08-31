@@ -83,7 +83,9 @@ export async function runCli(argv: string[] = process.argv.slice(2)): Promise<nu
     return 0;
   }
 
-  console.log(renderBanner("Reallity"));
+  if (options.mode !== "tui") {
+    console.log(renderBanner("Reallity"));
+  }
 
   const apiKey = process.env.REALLITY_API_KEY ?? process.env.OPENAI_API_KEY;
   if (!apiKey) {

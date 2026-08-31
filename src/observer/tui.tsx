@@ -134,8 +134,12 @@ function TuiApp({ bus }: TuiAppProps) {
           <Text bold color="white">
             Diff: {snapshot.diff.path}
           </Text>
-          <Text color="red">- {snapshot.diff.oldText}</Text>
-          <Text color="green">+ {snapshot.diff.newText}</Text>
+          <Text color="red" wrap="truncate">
+            - {snapshot.diff.oldText}
+          </Text>
+          <Text color="green" wrap="truncate">
+            + {snapshot.diff.newText}
+          </Text>
         </Box>
       ) : null}
 
@@ -186,7 +190,9 @@ function Panel({
       <Text bold color="white">
         {title}
       </Text>
-      <Box flexDirection="column">{visible}</Box>
+      <Box flexDirection="column" height={height} overflow="hidden">
+        {visible}
+      </Box>
       <Text color={focused ? "green" : "gray"}>
         {clampedOffset + 1}-{Math.min(lines.length, clampedOffset + height)} /{" "}
         {lines.length}
@@ -263,7 +269,7 @@ function renderMarkdownLineNodes(content: string): React.ReactNode[] {
 
     if (inCodeBlock) {
       nodes.push(
-        <Text key={`code-${index}`} color="yellow">
+        <Text key={`code-${index}`} color="yellow" wrap="truncate">
           {line}
         </Text>,
       );
@@ -272,7 +278,7 @@ function renderMarkdownLineNodes(content: string): React.ReactNode[] {
 
     if (/^#{1,6}\s+/.test(line)) {
       nodes.push(
-        <Text key={`h-${index}`} bold color="cyan">
+        <Text key={`h-${index}`} bold color="cyan" wrap="truncate">
           {cleanInlineMarkdown(line.replace(/^#{1,6}\s+/, ""))}
         </Text>,
       );
@@ -281,7 +287,7 @@ function renderMarkdownLineNodes(content: string): React.ReactNode[] {
 
     if (/^\s*\|.*\|\s*$/.test(line)) {
       nodes.push(
-        <Text key={`table-${index}`} color="gray">
+        <Text key={`table-${index}`} color="gray" wrap="truncate">
           {cleanInlineMarkdown(line)}
         </Text>,
       );
@@ -289,7 +295,9 @@ function renderMarkdownLineNodes(content: string): React.ReactNode[] {
     }
 
     nodes.push(
-      <Text key={`line-${index}`}>{cleanInlineMarkdown(line)}</Text>,
+      <Text key={`line-${index}`} wrap="truncate">
+        {cleanInlineMarkdown(line)}
+      </Text>,
     );
   }
 
@@ -300,7 +308,7 @@ function renderToolLines(snapshot: TuiSnapshot): React.ReactNode[] {
   const lines: React.ReactNode[] = [];
   if (snapshot.toolArgs) {
     lines.push(
-      <Text key="tool-args" color="gray">
+      <Text key="tool-args" color="gray" wrap="truncate">
         {formatToolArgs(snapshot.toolArgs)}
       </Text>,
     );
@@ -308,14 +316,16 @@ function renderToolLines(snapshot: TuiSnapshot): React.ReactNode[] {
   if (snapshot.toolOutput) {
     lines.push(
       ...snapshot.toolOutput.split("\n").map((line, index) => (
-        <Text key={`out-${index}`}>{line}</Text>
+        <Text key={`out-${index}`} wrap="truncate">
+          {line}
+        </Text>
       )),
     );
   }
   if (snapshot.toolError) {
     lines.push(
       ...snapshot.toolError.split("\n").map((line, index) => (
-        <Text key={`err-${index}`} color="red">
+        <Text key={`err-${index}`} color="red" wrap="truncate">
           {line}
         </Text>
       )),
