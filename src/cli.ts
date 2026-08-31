@@ -138,6 +138,7 @@ export async function runCli(argv: string[] = process.argv.slice(2)): Promise<nu
       mode: options.mode,
       task: options.task,
       tokenLimit: Number(process.env.REALLITY_TOKEN_LIMIT ?? 200_000),
+      workspaceRoot: options.workspace,
     });
     const result = await agent.run(options.task);
     stopTUI();

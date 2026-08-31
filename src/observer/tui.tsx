@@ -2,7 +2,8 @@ import React, { useEffect, useState } from "react";
 import { render, Box, Text, useInput, useStdout } from "ink";
 import Table from "./ink-table.tsx";
 import { renderBanner } from "../banner.ts";
-import type { EventBus } from "./events.ts";
+import { executeTool } from "../tools/executor.ts";
+import type { AgentEvent, EventBus } from "./events.ts";
 import type { AgentState } from "../fsm/types.ts";
 import type { LLMUsage } from "../llm/types.ts";
 
@@ -12,6 +13,7 @@ interface TuiAppProps {
   mode?: string;
   task?: string;
   tokenLimit?: number;
+  workspaceRoot?: string;
 }
 
 interface DiffView {
@@ -38,12 +40,18 @@ interface WorkflowStep {
   status: "pending" | "active" | "done";
 }
 
+interface ActivityItem {
+  text: string;
+  color?: string;
+}
+
 function TuiApp({
   bus,
   model = "gpt-4.1-mini",
   mode = "tui",
   task = "",
   tokenLimit = 200_000,
+  workspaceRoot = process.cwd(),
 }: TuiAppProps) {
   const { stdout } = useStdout();
   const contentWidth = Math.max(40, stdout.columns - 4);
@@ -67,6 +75,7 @@ function TuiApp({
   const [expandedDiffs, setExpandedDiffs] = useState<Set<number>>(new Set());
   const [diffFocus, setDiffFocus] = useState(0);
   const [diffOffsets, setDiffOffsets] = useState<number[]>([]);
+  const [activity, setActivity] = useState<ActivityItem[]>([]);
 
   useEffect(() => {
     const timer = setTimeout(() => setShowSplash(false), 2_200);
@@ -129,6 +138,11 @@ function TuiApp({
             return current.map((diff, i) => (i === index ? event.diff! : diff));
           });
         }
+
+        const activityItem = summarizeActivity(event);
+        if (activityItem) {
+          setActivity((current) => [...current, activityItem].slice(-80));
+        }
       }),
     [bus],
   );
@@ -166,6 +180,11 @@ function TuiApp({
       return;
     }
     if (key.return) {
+      if (command.trim()) {
+        void runCommand(command, workspaceRoot, (item) =>
+          setActivity((current) => [...current, item].slice(-80)),
+        );
+      }
       setCommand("");
       return;
     }
@@ -190,9 +209,9 @@ function TuiApp({
   return (
     <Box flexDirection="row" paddingX={1}>
       <Box flexDirection="column" width="46%">
-        <Text>{renderBanner("RL")}</Text>
+        <Text>{renderBanner("Reallity", "Small")}</Text>
         <Panel title="AUTOMATED WORKFLOWS" color="cyan">
-          <WorkflowView state={snapshot.state} />
+          <WorkflowView state={snapshot.state} activity={activity} />
         </Panel>
         <Panel title="AGENT FSM STATUS" color="cyan">
           <FsmView state={snapshot.state} />
@@ -260,7 +279,13 @@ function Panel({
   );
 }
 
-function WorkflowView({ state }: { state: AgentState }) {
+function WorkflowView({
+  state,
+  activity,
+}: {
+  state: AgentState;
+  activity: ActivityItem[];
+}) {
   const steps: WorkflowStep[] = [
     { label: "Plan", status: workflowStatus(state, "planner", "executor") },
     {
@@ -293,17 +318,22 @@ function WorkflowView({ state }: { state: AgentState }) {
           {step.label}
         </Text>
       ))}
+      <Text bold color="gray">Activity</Text>
+      {activity.slice(-12).map((item, index) => (
+        <Text key={index} color={item.color ?? "white"} wrap="truncate">
+          {item.text}
+        </Text>
+      ))}
     </Box>
   );
 }
 
 function FsmView({ state }: { state: AgentState }) {
-  const status = fsmStatus(state);
   const diagram = [
-    "IDLE ──▶ WORKING ──▶ DONE",
-    "   ▲         │         ",
-    "   │         ▼         ",
-    "   └── RETRYING ◀──── ERROR",
+    "init ─▶ planner ─▶ executor ─▶ verify",
+    "                    ▲         │",
+    "                    └─ rollback ◀┘",
+    "verify ─▶ commit ─▶ finish",
   ];
   return (
     <Box flexDirection="column">
@@ -312,7 +342,7 @@ function FsmView({ state }: { state: AgentState }) {
           {line}
         </Text>
       ))}
-      <Text color="yellow">current: {status}</Text>
+      <Text color="yellow">current: {state}</Text>
     </Box>
   );
 }
@@ -413,6 +443,61 @@ function statusColor(status: WorkflowStep["status"]): string {
   return "gray";
 }
 
+function summarizeActivity(event: AgentEvent): ActivityItem | null {
+  switch (event.type) {
+    case "state":
+      return { text: `state: ${event.state}`, color: "cyan" };
+    case "llm":
+      return {
+        text: `LLM: ${truncateText(cleanLlmText(event.content), 70)}`,
+        color: "white",
+      };
+    case "tool_start":
+      return { text: `▶ ${event.tool}`, color: "yellow" };
+    case "tool_result":
+      return {
+        text: `${event.tool} ${event.success ? "ok" : "failed"}`,
+        color: event.success ? "green" : "red",
+      };
+    case "verification":
+      return {
+        text: event.passed ? "✓ tests passed" : "✗ tests failed",
+        color: event.passed ? "green" : "red",
+      };
+    case "diagnostic":
+      return { text: event.diagnostic.message, color: "red" };
+    case "checkpoint":
+      return { text: `checkpoint ${event.head.slice(0, 8)}`, color: "gray" };
+    case "error":
+      return { text: `error: ${event.message}`, color: "red" };
+    case "finish":
+      return { text: "finished", color: "green" };
+  }
+}
+
+async function runCommand(
+  command: string,
+  workspaceRoot: string,
+  onItem: (item: ActivityItem) => void,
+): Promise<void> {
+  onItem({ text: `$ ${command}`, color: "yellow" });
+  const result = await executeTool(
+    {
+      id: "agent-command",
+      type: "function",
+      function: {
+        name: "bash",
+        arguments: JSON.stringify({ command }),
+      },
+    },
+    { workspaceRoot },
+  );
+  onItem({
+    text: result.success ? result.output : (result.error ?? "command failed"),
+    color: result.success ? "white" : "red",
+  });
+}
+
 export function startTUI(
   bus: EventBus,
   options: {
@@ -420,6 +505,7 @@ export function startTUI(
     mode?: string;
     task?: string;
     tokenLimit?: number;
+    workspaceRoot?: string;
   } = {},
 ): () => void {
   const instance = render(<TuiApp bus={bus} {...options} />);
