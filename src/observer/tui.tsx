@@ -198,6 +198,17 @@ function Panel({
   const maxOffset = Math.max(0, lines.length - height);
   const clampedOffset = Math.min(offset, maxOffset);
   const visible = lines.slice(clampedOffset, clampedOffset + height);
+  while (visible.length < height) {
+    visible.push(<Text key={`pad-${visible.length}`}> </Text>);
+  }
+  const thumbHeight = Math.max(
+    1,
+    Math.floor((height / Math.max(1, lines.length)) * height),
+  );
+  const thumbTop =
+    maxOffset === 0
+      ? 0
+      : Math.floor((clampedOffset / maxOffset) * (height - thumbHeight));
 
   return (
     <Box
@@ -210,8 +221,19 @@ function Panel({
       <Text bold color="white">
         {title}
       </Text>
-      <Box flexDirection="column" height={height} overflow="hidden">
-        {visible}
+      <Box flexDirection="row">
+        <Box flexDirection="column" flexGrow={1}>
+          {visible}
+        </Box>
+        <Box flexDirection="column" width={1}>
+          {Array.from({ length: height }, (_, index) => (
+            <Text key={`scroll-${index}`} color={focused ? "green" : "gray"}>
+              {index >= thumbTop && index < thumbTop + thumbHeight
+                ? "█"
+                : "│"}
+            </Text>
+          ))}
+        </Box>
       </Box>
       <Text color={focused ? "green" : "gray"}>
         {clampedOffset + 1}-{Math.min(lines.length, clampedOffset + height)} /{" "}
