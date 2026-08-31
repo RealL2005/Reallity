@@ -41,6 +41,29 @@ export class GitCheckpoint {
     }
   }
 
+  async diff(): Promise<string> {
+    try {
+      return await this.git("diff");
+    } catch (error) {
+      throw new AgentError(
+        `Failed to read git diff: ${error instanceof Error ? error.message : String(error)}`,
+        { code: "GIT_DIFF_FAILED" },
+      );
+    }
+  }
+
+  async commitAll(message: string): Promise<string> {
+    try {
+      await this.git("add", "-A");
+      return await this.git("commit", "-m", message);
+    } catch (error) {
+      throw new AgentError(
+        `Failed to commit changes: ${error instanceof Error ? error.message : String(error)}`,
+        { code: "GIT_COMMIT_FAILED" },
+      );
+    }
+  }
+
   private git(...args: string[]): Promise<string> {
     return execFileAsync("git", args, {
       cwd: this.workspaceRoot,

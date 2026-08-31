@@ -56,3 +56,27 @@ test("GitCheckpoint rolls tracked changes back to the captured state", async () 
   );
   expect(await checkpoint.capture()).toMatchObject({ head: snapshot.head });
 });
+
+test("GitCheckpoint returns a diff for tracked changes", async () => {
+  const checkpoint = new GitCheckpoint(root);
+  await writeFile(path.join(root, "tracked.txt"), "changed\n");
+
+  const diff = await checkpoint.diff();
+
+  expect(diff).toContain("--- a/tracked.txt");
+  expect(diff).toContain("+changed");
+});
+
+test("GitCheckpoint commits all changes", async () => {
+  const checkpoint = new GitCheckpoint(root);
+  await writeFile(path.join(root, "tracked.txt"), "changed\n");
+  await writeFile(path.join(root, "new.txt"), "new\n");
+
+  await checkpoint.commitAll("feat: test commit");
+
+  expect(await checkpoint.isClean()).toBe(true);
+  const log = await execFileAsync("git", ["log", "--oneline", "-1"], {
+    cwd: root,
+  });
+  expect(log.stdout).toContain("feat: test commit");
+});
