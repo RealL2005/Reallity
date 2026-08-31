@@ -1,5 +1,5 @@
 import React, { useEffect, useState } from "react";
-import { render, Box, Text } from "ink";
+import { render, Box, Text, useInput } from "ink";
 import type { EventBus } from "./events.ts";
 import type { AgentState } from "../fsm/types.ts";
 import type { LLMUsage } from "../llm/types.ts";
@@ -27,6 +27,12 @@ interface TuiSnapshot {
   running: boolean;
 }
 
+interface ScrollState {
+  focused: "llm" | "tool";
+  llmOffset: number;
+  toolOffset: number;
+}
+
 function TuiApp({ bus }: TuiAppProps) {
   const [snapshot, setSnapshot] = useState<TuiSnapshot>({
     state: "init",
@@ -34,6 +40,11 @@ function TuiApp({ bus }: TuiAppProps) {
     tool: "",
     events: 0,
     running: true,
+  });
+  const [scroll, setScroll] = useState<ScrollState>({
+    focused: "llm",
+    llmOffset: 0,
+    toolOffset: 0,
   });
 
   useEffect(
@@ -74,6 +85,30 @@ function TuiApp({ bus }: TuiAppProps) {
     [bus],
   );
 
+  useInput((_input, key) => {
+    if (key.tab) {
+      setScroll((current) => ({
+        ...current,
+        focused: current.focused === "llm" ? "tool" : "llm",
+      }));
+      return;
+    }
+
+    if (key.upArrow || key.downArrow) {
+      const delta = key.upArrow ? -1 : 1;
+      setScroll((current) => {
+        const focused = current.focused;
+        return {
+          ...current,
+          [focused === "llm" ? "llmOffset" : "toolOffset"]: Math.max(
+            0,
+            current[focused === "llm" ? "llmOffset" : "toolOffset"] + delta,
+          ),
+        };
+      });
+    }
+  });
+
   return (
     <Box flexDirection="column" paddingX={1}>
       <Box justifyContent="space-between">
@@ -98,13 +133,15 @@ function TuiApp({ bus }: TuiAppProps) {
           LLM
         </Text>
         {snapshot.llm ? (
-          renderMarkdown(tailLines(snapshot.llm, 18))
+          <ScrollableContent
+            lines={renderMarkdownLineNodes(snapshot.llm)}
+            height={12}
+            focused={scroll.focused === "llm"}
+            offset={scroll.llmOffset}
+          />
         ) : (
           <Text>Waiting for planner...</Text>
         )}
-        {snapshot.llm.length > 18 ? (
-          <Text color="gray">showing last 18 lines; full answer in trace.html</Text>
-        ) : null}
       </Box>
 
       <Box
@@ -121,11 +158,13 @@ function TuiApp({ bus }: TuiAppProps) {
         {snapshot.toolArgs ? (
           <Text color="gray">{formatToolArgs(snapshot.toolArgs)}</Text>
         ) : null}
-        {snapshot.toolOutput ? (
-          <Text>{tailLines(snapshot.toolOutput, 12)}</Text>
-        ) : null}
-        {snapshot.toolError ? (
-          <Text color="red">{tailLines(snapshot.toolError, 12)}</Text>
+        {snapshot.toolOutput || snapshot.toolError ? (
+          <ScrollableContent
+            lines={renderToolLines(snapshot)}
+            height={8}
+            focused={scroll.focused === "tool"}
+            offset={scroll.toolOffset}
+          />
         ) : null}
       </Box>
 
@@ -207,6 +246,44 @@ export function tailLines(content: string, maxLines: number): string {
   ].join("\n");
 }
 
+interface ScrollableContentProps {
+  lines: React.ReactNode[];
+  height: number;
+  focused: boolean;
+  offset: number;
+}
+
+function ScrollableContent({
+  lines,
+  height,
+  focused,
+  offset,
+}: ScrollableContentProps) {
+  const maxOffset = Math.max(0, lines.length - height);
+  const clampedOffset = Math.min(offset, maxOffset);
+  const visible = lines.slice(clampedOffset, clampedOffset + height);
+  const thumbHeight = Math.max(1, Math.floor((height / Math.max(1, lines.length)) * height));
+  const thumbTop =
+    maxOffset === 0
+      ? 0
+      : Math.floor((clampedOffset / maxOffset) * (height - thumbHeight));
+
+  return (
+    <Box flexDirection="row">
+      <Box flexDirection="column" flexGrow={1}>
+        {visible}
+      </Box>
+      <Box flexDirection="column" width={1}>
+        {Array.from({ length: height }, (_, index) => (
+          <Text key={index} color={focused ? "green" : "gray"}>
+            {index >= thumbTop && index < thumbTop + thumbHeight ? "█" : "│"}
+          </Text>
+        ))}
+      </Box>
+    </Box>
+  );
+}
+
 function formatToolArgs(args: Record<string, unknown>): string {
   const entries = Object.entries(args).map(([key, value]) => {
     const text =
@@ -216,7 +293,7 @@ function formatToolArgs(args: Record<string, unknown>): string {
   return entries.join(" | ");
 }
 
-function renderMarkdown(content: string): React.ReactNode[] {
+function renderMarkdownLineNodes(content: string): React.ReactNode[] {
   const lines = content.split("\n");
   const nodes: React.ReactNode[] = [];
   let inCodeBlock = false;
@@ -263,6 +340,27 @@ function renderMarkdown(content: string): React.ReactNode[] {
   }
 
   return nodes;
+}
+
+function renderToolLines(snapshot: TuiSnapshot): React.ReactNode[] {
+  const lines: React.ReactNode[] = [];
+  if (snapshot.toolOutput) {
+    lines.push(
+      ...snapshot.toolOutput.split("\n").map((line, index) => (
+        <Text key={`out-${index}`}>{line}</Text>
+      )),
+    );
+  }
+  if (snapshot.toolError) {
+    lines.push(
+      ...snapshot.toolError.split("\n").map((line, index) => (
+        <Text key={`err-${index}`} color="red">
+          {line}
+        </Text>
+      )),
+    );
+  }
+  return lines;
 }
 
 function cleanInlineMarkdown(content: string): string {
