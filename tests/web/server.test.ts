@@ -6,7 +6,9 @@ test("startWebUI serves health and runs a task", async () => {
     port: 0,
     runTask: async (task) => ({
       success: true,
+      state: "finish",
       message: `ran ${task}`,
+      rounds: 1,
       tracePath: "/tmp/trace.html",
     }),
   });

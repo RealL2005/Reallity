@@ -106,6 +106,21 @@ test("edit_file rejects duplicate matches without writing", async () => {
   expect(await readFile(filePath, "utf8")).toBe("same\nsame\n");
 });
 
+test("edit_file rejects TypeScript syntax errors before writing", async () => {
+  const filePath = path.join(workspaceRoot, "broken.ts");
+  await writeFile(filePath, "const answer = 1;\n");
+
+  const result = await run("edit_file", {
+    path: "broken.ts",
+    old_str: "const answer = 1;",
+    new_str: "const answer = ;",
+  });
+
+  expect(result.success).toBe(false);
+  expect(result.error).toContain("AST guardrail");
+  expect(await readFile(filePath, "utf8")).toBe("const answer = 1;\n");
+});
+
 test("list_dir lists workspace contents", async () => {
   await writeFile(path.join(workspaceRoot, "a.ts"), "");
   await mkdir(path.join(workspaceRoot, "nested"));

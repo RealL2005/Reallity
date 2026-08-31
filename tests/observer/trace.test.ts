@@ -34,7 +34,13 @@ test("buildTraceHtml contains mermaid state diagram and events", () => {
 
 test("buildTraceHtml escapes script-tag content", () => {
   const html = buildTraceHtml([
-    { type: "tool_result", tool: "<script>alert(1)</script>", success: true, timestamp: 1 },
+    {
+      type: "tool_result",
+      tool: "read_file",
+      success: true,
+      output: "<script>alert(1)</script>",
+      timestamp: 1,
+    },
   ]);
 
   expect(html).not.toContain("<script>alert(1)</script>");

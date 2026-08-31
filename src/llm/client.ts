@@ -28,8 +28,13 @@ export interface OpenAICompatibleClientOptions {
   tools?: ToolSchemaEntry[];
   temperature?: number;
   maxTokens?: number;
-  fetchImpl?: typeof fetch;
+  fetchImpl?: FetchLike;
 }
+
+type FetchLike = (
+  input: string | URL | Request,
+  init?: RequestInit,
+) => Promise<Response>;
 
 export interface StreamCompletionOptions {
   model?: string;

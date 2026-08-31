@@ -21,6 +21,7 @@ import {
   buildBashEnv,
   classifyHighRiskCommand,
 } from "./guards.ts";
+import { analyzeSource, isCodeFile } from "../guards/ast.ts";
 import type { ToolCall } from "../core/context.ts";
 import { truncateOutput } from "../core/context.ts";
 
@@ -120,6 +121,19 @@ async function executeEditFile(
   const content = await readFile(resolved, "utf8");
   assertUniqueMatch(content, args.old_str);
   const updated = content.replace(args.old_str, args.new_str);
+
+  if (isCodeFile(resolved)) {
+    const analysis = analyzeSource(updated, resolved);
+    if (!analysis.ok) {
+      throw new AgentError(
+        `AST guardrail rejected edit: ${analysis.diagnostics
+          .map((diagnostic) => diagnostic.message)
+          .join("; ")}`,
+        { code: "AST_GUARDRAIL_FAILED" },
+      );
+    }
+  }
+
   await writeFile(resolved, updated, "utf8");
 
   return `Edited ${args.path}: replaced ${args.old_str.length} chars with ${args.new_str.length} chars.`;
@@ -199,9 +213,13 @@ function runBashCommand(
 
     const timer = setTimeout(() => {
       timedOut = true;
-      try {
-        process.kill(-child.pid ?? 0, "SIGKILL");
-      } catch {
+      if (child.pid) {
+        try {
+          process.kill(-child.pid, "SIGKILL");
+        } catch {
+          child.kill("SIGKILL");
+        }
+      } else {
         child.kill("SIGKILL");
       }
     }, context.timeoutMs ?? 30_000);

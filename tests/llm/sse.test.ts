@@ -24,7 +24,8 @@ test("SSEParser handles chunks split across boundaries", () => {
   );
 
   expect(events).toHaveLength(1);
-  expect(events[0].content).toBe("hello");
+  const event = events[0] as { type: "delta"; content: string };
+  expect(event.content).toBe("hello");
 });
 
 test("SSEParser emits a done event for [DONE]", () => {

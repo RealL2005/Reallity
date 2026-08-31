@@ -103,8 +103,6 @@ export class ReallityAgent {
           case "rollback":
             await this.rollbackAndReplan();
             break;
-          case "finish":
-            break;
         }
       }
 
