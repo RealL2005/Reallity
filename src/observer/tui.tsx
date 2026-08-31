@@ -27,12 +27,6 @@ interface TuiSnapshot {
   running: boolean;
 }
 
-interface ScrollState {
-  focused: "llm" | "tool";
-  llmOffset: number;
-  toolOffset: number;
-}
-
 function TuiApp({ bus }: TuiAppProps) {
   const [snapshot, setSnapshot] = useState<TuiSnapshot>({
     state: "init",
@@ -41,11 +35,9 @@ function TuiApp({ bus }: TuiAppProps) {
     events: 0,
     running: true,
   });
-  const [scroll, setScroll] = useState<ScrollState>({
-    focused: "llm",
-    llmOffset: 0,
-    toolOffset: 0,
-  });
+  const [focused, setFocused] = useState<"llm" | "tool">("llm");
+  const [llmOffset, setLlmOffset] = useState(0);
+  const [toolOffset, setToolOffset] = useState(0);
 
   useEffect(
     () =>
@@ -87,95 +79,58 @@ function TuiApp({ bus }: TuiAppProps) {
 
   useInput((_input, key) => {
     if (key.tab) {
-      setScroll((current) => ({
-        ...current,
-        focused: current.focused === "llm" ? "tool" : "llm",
-      }));
+      setFocused((current) => (current === "llm" ? "tool" : "llm"));
       return;
     }
 
     if (key.upArrow || key.downArrow) {
       const delta = key.upArrow ? -1 : 1;
-      setScroll((current) => {
-        const focused = current.focused;
-        return {
-          ...current,
-          [focused === "llm" ? "llmOffset" : "toolOffset"]: Math.max(
-            0,
-            current[focused === "llm" ? "llmOffset" : "toolOffset"] + delta,
-          ),
-        };
-      });
+      if (focused === "llm") {
+        setLlmOffset((current) => Math.max(0, current + delta));
+      } else {
+        setToolOffset((current) => Math.max(0, current + delta));
+      }
     }
   });
 
+  const llmLines = snapshot.llm
+    ? renderMarkdownLineNodes(snapshot.llm)
+    : [<Text key="llm-empty">Waiting for planner...</Text>];
+  const toolLines =
+    snapshot.toolOutput || snapshot.toolError
+      ? renderToolLines(snapshot)
+      : [<Text key="tool-empty">No tool activity yet</Text>];
+
   return (
     <Box flexDirection="column" paddingX={1}>
-      <Box justifyContent="space-between">
-        <Text bold color={stateColor(snapshot.state)}>
-          Reallity
-        </Text>
-        <Text color={stateColor(snapshot.state)}>
-          state: {snapshot.state}
-          {snapshot.running ? " • " : ""}
-          {snapshot.running ? "running" : "done"}
-        </Text>
-      </Box>
+      <Text bold color={stateColor(snapshot.state)}>
+        Reallity
+      </Text>
+      <Text color={stateColor(snapshot.state)}>
+        state: {snapshot.state}
+        {snapshot.running ? " • running" : " • done"}
+      </Text>
 
-      <Box
-        borderStyle="round"
-        borderColor={stateColor(snapshot.state)}
-        flexDirection="column"
-        paddingX={1}
-        marginY={1}
-      >
-        <Text bold color="white">
-          LLM
-        </Text>
-        {snapshot.llm ? (
-          <ScrollableContent
-            lines={renderMarkdownLineNodes(snapshot.llm)}
-            height={12}
-            focused={scroll.focused === "llm"}
-            offset={scroll.llmOffset}
-          />
-        ) : (
-          <Text>Waiting for planner...</Text>
-        )}
-      </Box>
+      <Panel
+        title="LLM"
+        lines={llmLines}
+        height={10}
+        focused={focused === "llm"}
+        offset={llmOffset}
+        color={stateColor(snapshot.state)}
+      />
 
-      <Box
-        borderStyle="round"
-        borderColor={stateColor(snapshot.state)}
-        flexDirection="column"
-        paddingX={1}
-        marginBottom={1}
-      >
-        <Text bold color="white">
-          Tool
-        </Text>
-        <Text>{snapshot.tool || "No tool activity yet"}</Text>
-        {snapshot.toolArgs ? (
-          <Text color="gray">{formatToolArgs(snapshot.toolArgs)}</Text>
-        ) : null}
-        {snapshot.toolOutput || snapshot.toolError ? (
-          <ScrollableContent
-            lines={renderToolLines(snapshot)}
-            height={8}
-            focused={scroll.focused === "tool"}
-            offset={scroll.toolOffset}
-          />
-        ) : null}
-      </Box>
+      <Panel
+        title="Tool"
+        lines={toolLines}
+        height={8}
+        focused={focused === "tool"}
+        offset={toolOffset}
+        color={stateColor(snapshot.state)}
+      />
 
       {snapshot.diff ? (
-        <Box
-          borderStyle="round"
-          borderColor={stateColor(snapshot.state)}
-          flexDirection="column"
-          paddingX={1}
-          marginBottom={1}
-        >
+        <Box borderStyle="round" borderColor={stateColor(snapshot.state)} flexDirection="column" paddingX={1} marginBottom={1}>
           <Text bold color="white">
             Diff: {snapshot.diff.path}
           </Text>
@@ -185,17 +140,57 @@ function TuiApp({ bus }: TuiAppProps) {
       ) : null}
 
       {snapshot.usage ? (
-        <Box>
-          <Text color="gray">
-            tokens {snapshot.usage.totalTokens} / prompt{" "}
-            {snapshot.usage.promptTokens} / completion{" "}
-            {snapshot.usage.completionTokens} / cache hit{" "}
-            {snapshot.usage.promptCacheHitTokens}
-          </Text>
-        </Box>
+        <Text color="gray">
+          tokens {snapshot.usage.totalTokens} / prompt{" "}
+          {snapshot.usage.promptTokens} / completion{" "}
+          {snapshot.usage.completionTokens} / cache hit{" "}
+          {snapshot.usage.promptCacheHitTokens}
+        </Text>
       ) : null}
 
       <Text color="gray">events: {snapshot.events}</Text>
+      <Text color="gray">Tab to switch panel · ↑/↓ to scroll</Text>
+    </Box>
+  );
+}
+
+interface PanelProps {
+  title: string;
+  lines: React.ReactNode[];
+  height: number;
+  focused: boolean;
+  offset: number;
+  color: string;
+}
+
+function Panel({
+  title,
+  lines,
+  height,
+  focused,
+  offset,
+  color,
+}: PanelProps) {
+  const maxOffset = Math.max(0, lines.length - height);
+  const clampedOffset = Math.min(offset, maxOffset);
+  const visible = lines.slice(clampedOffset, clampedOffset + height);
+
+  return (
+    <Box
+      borderStyle="round"
+      borderColor={color}
+      flexDirection="column"
+      paddingX={1}
+      marginY={1}
+    >
+      <Text bold color="white">
+        {title}
+      </Text>
+      <Box flexDirection="column">{visible}</Box>
+      <Text color={focused ? "green" : "gray"}>
+        {clampedOffset + 1}-{Math.min(lines.length, clampedOffset + height)} /{" "}
+        {lines.length}
+      </Text>
     </Box>
   );
 }
@@ -246,48 +241,9 @@ export function tailLines(content: string, maxLines: number): string {
   ].join("\n");
 }
 
-interface ScrollableContentProps {
-  lines: React.ReactNode[];
-  height: number;
-  focused: boolean;
-  offset: number;
-}
-
-function ScrollableContent({
-  lines,
-  height,
-  focused,
-  offset,
-}: ScrollableContentProps) {
-  const maxOffset = Math.max(0, lines.length - height);
-  const clampedOffset = Math.min(offset, maxOffset);
-  const visible = lines.slice(clampedOffset, clampedOffset + height);
-  const thumbHeight = Math.max(1, Math.floor((height / Math.max(1, lines.length)) * height));
-  const thumbTop =
-    maxOffset === 0
-      ? 0
-      : Math.floor((clampedOffset / maxOffset) * (height - thumbHeight));
-
-  return (
-    <Box flexDirection="row">
-      <Box flexDirection="column" flexGrow={1}>
-        {visible}
-      </Box>
-      <Box flexDirection="column" width={1}>
-        {Array.from({ length: height }, (_, index) => (
-          <Text key={index} color={focused ? "green" : "gray"}>
-            {index >= thumbTop && index < thumbTop + thumbHeight ? "█" : "│"}
-          </Text>
-        ))}
-      </Box>
-    </Box>
-  );
-}
-
 function formatToolArgs(args: Record<string, unknown>): string {
   const entries = Object.entries(args).map(([key, value]) => {
-    const text =
-      typeof value === "string" ? value : JSON.stringify(value);
+    const text = typeof value === "string" ? value : JSON.stringify(value);
     return `${key}: ${text}`;
   });
   return entries.join(" | ");
@@ -333,9 +289,7 @@ function renderMarkdownLineNodes(content: string): React.ReactNode[] {
     }
 
     nodes.push(
-      <Text key={`line-${index}`}>
-        {cleanInlineMarkdown(line)}
-      </Text>,
+      <Text key={`line-${index}`}>{cleanInlineMarkdown(line)}</Text>,
     );
   }
 
@@ -344,6 +298,13 @@ function renderMarkdownLineNodes(content: string): React.ReactNode[] {
 
 function renderToolLines(snapshot: TuiSnapshot): React.ReactNode[] {
   const lines: React.ReactNode[] = [];
+  if (snapshot.toolArgs) {
+    lines.push(
+      <Text key="tool-args" color="gray">
+        {formatToolArgs(snapshot.toolArgs)}
+      </Text>,
+    );
+  }
   if (snapshot.toolOutput) {
     lines.push(
       ...snapshot.toolOutput.split("\n").map((line, index) => (
