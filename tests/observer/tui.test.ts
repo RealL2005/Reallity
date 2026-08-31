@@ -1,6 +1,7 @@
 import { test, expect } from "bun:test";
 import {
   cleanLlmText,
+  formatMarkdownTable,
   stateColor,
   tailLines,
 } from "../../src/observer/tui.tsx";
@@ -48,4 +49,16 @@ test("tailLines keeps the tail and reports omitted lines", () => {
     "line-28",
     "line-29",
   ]);
+});
+
+test("formatMarkdownTable aligns markdown table columns", () => {
+  const result = formatMarkdownTable([
+    "| A | B |",
+    "|---|---|",
+    "| 1 | 22 |",
+  ]);
+
+  expect(result[0]).toBe("| A | B  |");
+  expect(result[1]).toContain("| -");
+  expect(result[2]).toBe("| 1 | 22 |");
 });

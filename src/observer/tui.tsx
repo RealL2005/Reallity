@@ -19,6 +19,7 @@ interface TuiSnapshot {
   state: AgentState;
   llm: string;
   tool: string;
+  currentTool?: string;
   toolArgs?: Record<string, unknown>;
   toolOutput?: string;
   toolError?: string;
@@ -58,6 +59,7 @@ function TuiApp({ bus }: TuiAppProps) {
             next.usage = event.usage;
           } else if (event.type === "tool_start") {
             next.tool = `Running ${event.tool}`;
+            next.currentTool = event.tool;
             next.toolArgs = event.args;
             next.toolOutput = undefined;
             next.toolError = undefined;
@@ -139,7 +141,7 @@ function TuiApp({ bus }: TuiAppProps) {
       />
 
       <Panel
-        title="Tool"
+        title={snapshot.currentTool ? `Tool: ${snapshot.currentTool}` : "Tool"}
         lines={toolLines}
         height={8}
         focused={focused === "tool"}
@@ -277,15 +279,34 @@ function renderMarkdownLineNodes(content: string): React.ReactNode[] {
   const lines = content.split("\n");
   const nodes: React.ReactNode[] = [];
   let inCodeBlock = false;
+  let tableLines: string[] = [];
+
+  const flushTable = () => {
+    if (tableLines.length === 0) {
+      return;
+    }
+    for (const [tableIndex, tableLine] of formatMarkdownTable(
+      tableLines,
+    ).entries()) {
+      nodes.push(
+        <Text key={`table-${tableIndex}`} wrap="truncate" color="gray">
+          {tableLine}
+        </Text>,
+      );
+    }
+    tableLines = [];
+  };
 
   for (let index = 0; index < lines.length; index += 1) {
     const line = lines[index];
     if (line.trim().startsWith("```")) {
+      flushTable();
       inCodeBlock = !inCodeBlock;
       continue;
     }
 
     if (inCodeBlock) {
+      flushTable();
       nodes.push(
         <Text key={`code-${index}`} color="yellow" wrap="truncate">
           {line}
@@ -294,19 +315,17 @@ function renderMarkdownLineNodes(content: string): React.ReactNode[] {
       continue;
     }
 
+    if (/^\s*\|.*\|\s*$/.test(line)) {
+      tableLines.push(line);
+      continue;
+    }
+
+    flushTable();
+
     if (/^#{1,6}\s+/.test(line)) {
       nodes.push(
         <Text key={`h-${index}`} bold color="cyan" wrap="truncate">
           {cleanInlineMarkdown(line.replace(/^#{1,6}\s+/, ""))}
-        </Text>,
-      );
-      continue;
-    }
-
-    if (/^\s*\|.*\|\s*$/.test(line)) {
-      nodes.push(
-        <Text key={`table-${index}`} color="gray" wrap="truncate">
-          {cleanInlineMarkdown(line)}
         </Text>,
       );
       continue;
@@ -319,6 +338,7 @@ function renderMarkdownLineNodes(content: string): React.ReactNode[] {
     );
   }
 
+  flushTable();
   return nodes;
 }
 
@@ -357,4 +377,42 @@ function cleanInlineMarkdown(content: string): string {
     .replace(/\*\*([^*]+)\*\*/g, "$1")
     .replace(/`([^`]+)`/g, "$1")
     .replace(/^\s*>+\s?/, "");
+}
+
+export function formatMarkdownTable(lines: string[]): string[] {
+  const rows = lines
+    .map((line) => line.trim().replace(/^\|/, "").replace(/\|$/, ""))
+    .filter((line) => line.length > 0)
+    .map((line) =>
+      line
+        .split("|")
+        .map((cell) => cleanInlineMarkdown(cell.trim())),
+    )
+    .filter(
+      (row) => !row.every((cell) => /^:?-+:?$/.test(cell)),
+    );
+
+  if (rows.length === 0) {
+    return [];
+  }
+
+  const columnCount = Math.max(...rows.map((row) => row.length));
+  const widths = Array.from({ length: columnCount }, (_, column) =>
+    Math.max(
+      1,
+      ...rows.map((row) => (row[column] ?? "").length),
+    ),
+  );
+
+  const formatRow = (row: string[]) =>
+    `| ${row
+      .map((cell, index) => (cell ?? "").padEnd(widths[index] ?? 1))
+      .join(" | ")} |`;
+  const separator = `| ${widths.map((width) => "-".repeat(width)).join(" | ")} |`;
+
+  return [
+    formatRow(rows[0]),
+    separator,
+    ...rows.slice(1).map((row) => formatRow(row)),
+  ];
 }
