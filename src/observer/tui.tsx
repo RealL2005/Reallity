@@ -1,5 +1,6 @@
 import React, { useEffect, useState } from "react";
 import { render, Box, Text, useInput } from "ink";
+import { renderBanner } from "../banner.ts";
 import type { EventBus } from "./events.ts";
 import type { AgentState } from "../fsm/types.ts";
 import type { LLMUsage } from "../llm/types.ts";
@@ -28,6 +29,7 @@ interface TuiSnapshot {
 }
 
 function TuiApp({ bus }: TuiAppProps) {
+  const [showSplash, setShowSplash] = useState(true);
   const [snapshot, setSnapshot] = useState<TuiSnapshot>({
     state: "init",
     llm: "",
@@ -77,6 +79,13 @@ function TuiApp({ bus }: TuiAppProps) {
     [bus],
   );
 
+  useEffect(() => {
+    const timer = setTimeout(() => {
+      setShowSplash(false);
+    }, 2_200);
+    return () => clearTimeout(timer);
+  }, []);
+
   useInput((_input, key) => {
     if (key.tab) {
       setFocused((current) => (current === "llm" ? "tool" : "llm"));
@@ -100,6 +109,15 @@ function TuiApp({ bus }: TuiAppProps) {
     snapshot.toolOutput || snapshot.toolError
       ? renderToolLines(snapshot)
       : [<Text key="tool-empty">No tool activity yet</Text>];
+
+  if (showSplash) {
+    return (
+      <Box flexDirection="column" paddingX={1}>
+        <Text>{renderBanner("Reallity")}</Text>
+        <Text color="gray">Starting Reallity...</Text>
+      </Box>
+    );
+  }
 
   return (
     <Box flexDirection="column" paddingX={1}>
