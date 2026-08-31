@@ -77,6 +77,11 @@ function TuiApp({ bus }: TuiAppProps) {
 
           return next;
         });
+        if (event.type === "llm") {
+          setFocused("llm");
+        } else if (event.type === "tool_start" || event.type === "tool_result") {
+          setFocused("tool");
+        }
       }),
     [bus],
   );
@@ -94,12 +99,13 @@ function TuiApp({ bus }: TuiAppProps) {
       return;
     }
 
-    if (key.upArrow || key.downArrow) {
-      const delta = key.upArrow ? -1 : 1;
+    if (key.upArrow || key.downArrow || key.pageUp || key.pageDown) {
+      const delta = key.upArrow || key.pageUp ? -1 : 1;
+      const step = key.pageUp || key.pageDown ? 5 : 1;
       if (focused === "llm") {
-        setLlmOffset((current) => Math.max(0, current + delta));
+        setLlmOffset((current) => Math.max(0, current + delta * step));
       } else {
-        setToolOffset((current) => Math.max(0, current + delta));
+        setToolOffset((current) => Math.max(0, current + delta * step));
       }
     }
   });
