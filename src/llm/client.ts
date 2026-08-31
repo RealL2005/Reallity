@@ -40,6 +40,7 @@ export interface StreamCompletionOptions {
   model?: string;
   temperature?: number;
   maxTokens?: number;
+  tools?: ToolSchemaEntry[];
 }
 
 export interface ChatRequestBody {
@@ -63,8 +64,8 @@ export function buildChatRequestBody(
   return {
     model: options.model,
     messages,
-    tools,
     stream: true,
+    ...(tools.length > 0 ? { tools } : {}),
     ...(options.temperature === undefined
       ? {}
       : { temperature: options.temperature }),
@@ -83,7 +84,7 @@ export class OpenAICompatibleClient {
     messages: ChatMessage[],
     options: StreamCompletionOptions = {},
   ): Promise<LLMResponse> {
-    const tools = this.options.tools ?? [];
+    const tools = options.tools ?? this.options.tools ?? [];
     const model = options.model ?? this.options.model;
     const body = buildChatRequestBody(messages, tools, {
       model,

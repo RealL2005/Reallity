@@ -5,6 +5,7 @@ import { EventBus } from "./observer/events.ts";
 import { startTUI } from "./observer/tui.tsx";
 import { startWebUI } from "./web/server.ts";
 import { loadEnvFile } from "./config.ts";
+import { TOOL_SCHEMAS } from "./tools/schemas.ts";
 
 export type CliMode = "headless" | "tui" | "web";
 
@@ -96,6 +97,7 @@ export async function runCli(argv: string[] = process.argv.slice(2)): Promise<nu
     apiKey,
     baseURL: options.baseURL,
     model: options.model,
+    tools: TOOL_SCHEMAS,
   });
   const agent = new ReallityAgent({
     workspaceRoot: options.workspace,

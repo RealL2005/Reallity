@@ -237,12 +237,15 @@ export class ReallityAgent {
       diff,
       files,
     });
-    const response = await this.client.streamCompletion([
-      {
-        role: "user",
-        content: prompt,
-      },
-    ]);
+    const response = await this.client.streamCompletion(
+      [
+        {
+          role: "user",
+          content: prompt,
+        },
+      ],
+      { tools: [] },
+    );
     const review = parseReviewResponse(response.content);
 
     if (review?.approved) {

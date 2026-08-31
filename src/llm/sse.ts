@@ -52,7 +52,7 @@ function parseBlock(block: string): LLMStreamEvent[] {
     const events: LLMStreamEvent[] = [];
 
     for (const choice of chunk.choices) {
-      if (choice.delta.content !== undefined) {
+      if (typeof choice.delta.content === "string") {
         events.push({
           type: "delta",
           content: choice.delta.content,

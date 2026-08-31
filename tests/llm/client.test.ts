@@ -37,6 +37,16 @@ test("buildChatRequestBody includes model, messages, tools, and streaming", () =
   });
 });
 
+test("buildChatRequestBody omits the tools field when the list is empty", () => {
+  const body = buildChatRequestBody(
+    [{ role: "user", content: "hello" }],
+    [],
+    { model: "test" },
+  );
+
+  expect(body).not.toHaveProperty("tools");
+});
+
 test("streamCompletion accumulates content and tool call arguments", async () => {
   const sse = [
     'data: {"id":"1","object":"chat.completion.chunk","created":1,"model":"test","choices":[{"index":0,"delta":{"role":"assistant","content":"Hel"},"finish_reason":null}]}\n\n',

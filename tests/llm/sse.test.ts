@@ -50,3 +50,12 @@ test("SSEParser emits tool call deltas", () => {
     },
   });
 });
+
+test("SSEParser ignores null delta content", () => {
+  const parser = new SSEParser();
+  const events = parser.push(
+    'data: {"id":"1","choices":[{"index":0,"delta":{"content":null},"finish_reason":null}]}\n\n',
+  );
+
+  expect(events).toEqual([]);
+});

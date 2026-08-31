@@ -46,7 +46,7 @@ function TuiApp({ bus }: TuiAppProps) {
           if (event.type === "state") {
             next.state = event.state;
           } else if (event.type === "llm") {
-            next.llm = event.content || "(tool calls)";
+            next.llm = cleanLlmText(event.content);
             next.usage = event.usage;
           } else if (event.type === "tool_start") {
             next.tool = `Running ${event.tool}`;
@@ -124,4 +124,12 @@ export function startTUI(bus: EventBus): () => void {
   return () => {
     instance.unmount();
   };
+}
+
+function cleanLlmText(content: string): string {
+  const withoutToolTags = content
+    .replace(/<tool_calls>[\s\S]*?<\/tool_calls>/gi, "")
+    .trim();
+  const display = withoutToolTags || "(tool calls)";
+  return display.length > 160 ? `${display.slice(0, 160)}...` : display;
 }
