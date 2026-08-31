@@ -1,6 +1,7 @@
 import type {
   ChatCompletionChunk,
   LLMStreamEvent,
+  LLMUsage,
 } from "./types.ts";
 
 export class SSEParser {
@@ -77,8 +78,27 @@ function parseBlock(block: string): LLMStreamEvent[] {
       }
     }
 
+    if (chunk.usage) {
+      events.push({
+        type: "usage",
+        usage: toLLMUsage(chunk.usage),
+      });
+    }
+
     return events;
   } catch {
     return [{ type: "error", message: `Failed to parse SSE chunk: ${data}` }];
   }
+}
+
+function toLLMUsage(
+  usage: NonNullable<ChatCompletionChunk["usage"]>,
+): LLMUsage {
+  return {
+    promptTokens: usage.prompt_tokens ?? 0,
+    completionTokens: usage.completion_tokens ?? 0,
+    totalTokens: usage.total_tokens ?? 0,
+    promptCacheHitTokens: usage.prompt_cache_hit_tokens ?? 0,
+    promptCacheMissTokens: usage.prompt_cache_miss_tokens ?? 0,
+  };
 }

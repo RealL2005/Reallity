@@ -4,7 +4,12 @@ import { tmpdir } from "node:os";
 import path from "node:path";
 import { loadEnvFile } from "../src/config.ts";
 
-const keys = ["REALLITY_API_KEY", "REALLITY_MODEL", "REALLITY_BASE_URL"];
+const keys = [
+  "REALLITY_API_KEY",
+  "REALLITY_MODEL",
+  "REALLITY_BASE_URL",
+  "REALLITY_WORKSPACE",
+];
 
 async function withEnvCleanup(fn: () => Promise<void>): Promise<void> {
   const saved = new Map<string, string | undefined>();
@@ -75,4 +80,21 @@ test("loadEnvFile returns an empty object for a missing file", async () => {
   const result = loadEnvFile("/tmp/definitely-not-a-real-reallity-env-file");
 
   expect(result).toEqual({});
+});
+
+test("loadEnvFile ignores empty values", async () => {
+  await withEnvCleanup(async () => {
+    const root = await mkdtemp(path.join(tmpdir(), "reallity-env-"));
+    const envPath = path.join(root, ".env");
+    await writeFile(envPath, "REALLITY_WORKSPACE=\nREALLITY_MODEL=gpt-test\n");
+
+    try {
+      loadEnvFile(envPath);
+
+      expect(process.env.REALLITY_WORKSPACE).toBeUndefined();
+      expect(process.env.REALLITY_MODEL).toBe("gpt-test");
+    } finally {
+      await rm(root, { recursive: true, force: true });
+    }
+  });
 });

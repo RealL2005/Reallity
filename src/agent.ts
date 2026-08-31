@@ -41,6 +41,7 @@ export interface AgentRunResult {
   success: boolean;
   state: string;
   message: string;
+  answer: string;
   rounds: number;
   tracePath: string;
 }
@@ -57,6 +58,7 @@ export class ReallityAgent {
   private readonly commitMessagePrefix: string;
   private toolRounds = 0;
   private readOnly = false;
+  private finalAnswer = "";
 
   constructor(options: ReallityAgentOptions) {
     this.workspaceRoot = options.workspaceRoot;
@@ -122,6 +124,7 @@ export class ReallityAgent {
         success: true,
         state: this.fsm.state,
         message,
+        answer: this.finalAnswer || message,
         rounds: this.fsm.roundCount,
         tracePath: this.writeTrace(),
       };
@@ -136,6 +139,7 @@ export class ReallityAgent {
         success: false,
         state: this.fsm.state,
         message,
+        answer: this.finalAnswer,
         rounds: this.fsm.roundCount,
         tracePath: this.writeTrace(),
       };
@@ -166,6 +170,9 @@ export class ReallityAgent {
     );
 
     if (response.toolCalls.length === 0) {
+      if (response.content.trim()) {
+        this.finalAnswer = response.content.trim();
+      }
       this.toolRounds = 0;
       this.transition("verify");
       return;
@@ -174,9 +181,11 @@ export class ReallityAgent {
     this.toolRounds += 1;
 
     for (const call of response.toolCalls) {
+      const args = parseToolArguments(call.function.arguments);
       this.emit({
         type: "tool_start",
         tool: call.function.name as never,
+        args,
         timestamp: Date.now(),
       });
 
@@ -258,7 +267,7 @@ export class ReallityAgent {
     });
 
     if (verification.passed || looksLikeNoTests(verification.output)) {
-      if (!(await this.checkpoint.hasChanges())) {
+      if (this.readOnly || !(await this.checkpoint.hasChanges())) {
         this.transition("commit");
         return;
       }
@@ -333,6 +342,11 @@ export class ReallityAgent {
   }
 
   private async commit(task: string): Promise<void> {
+    if (this.readOnly) {
+      this.transition("finish");
+      return;
+    }
+
     if (await this.checkpoint.hasChanges()) {
       await this.checkpoint.commitAll(`${this.commitMessagePrefix}: ${task}`);
     }
@@ -454,6 +468,17 @@ function extractPath(argumentsJson: string): string {
     return typeof parsed.path === "string" ? parsed.path : "";
   } catch {
     return "";
+  }
+}
+
+function parseToolArguments(argumentsJson: string): Record<string, unknown> {
+  try {
+    const parsed = JSON.parse(argumentsJson) as unknown;
+    return typeof parsed === "object" && parsed !== null
+      ? (parsed as Record<string, unknown>)
+      : {};
+  } catch {
+    return {};
   }
 }
 

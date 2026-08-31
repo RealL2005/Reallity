@@ -54,6 +54,7 @@ export type LLMStreamEvent =
       toolCall: StreamToolCallDelta;
       finishReason?: string | null;
     }
+  | { type: "usage"; usage: LLMUsage }
   | { type: "done" }
   | { type: "error"; message: string };
 

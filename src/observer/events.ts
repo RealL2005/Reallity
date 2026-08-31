@@ -13,7 +13,12 @@ export type AgentEvent =
       usage: LLMUsage;
       timestamp: number;
     }
-  | { type: "tool_start"; tool: ToolName; timestamp: number }
+  | {
+      type: "tool_start";
+      tool: ToolName;
+      args?: Record<string, unknown>;
+      timestamp: number;
+    }
   | {
       type: "tool_result";
       tool: ToolName;

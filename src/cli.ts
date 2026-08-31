@@ -24,9 +24,11 @@ export function parseCliArgs(argv: string[]): CliOptions {
   const options: CliOptions = {
     mode: "headless",
     task: "",
-    workspace: process.env.REALLITY_WORKSPACE ?? process.cwd(),
-    model: process.env.REALLITY_MODEL ?? "gpt-4.1-mini",
-    baseURL: process.env.REALLITY_BASE_URL ?? "https://api.openai.com/v1",
+    workspace: process.env.REALLITY_WORKSPACE?.trim() || process.cwd(),
+    model: process.env.REALLITY_MODEL?.trim() || "gpt-4.1-mini",
+    baseURL:
+      process.env.REALLITY_BASE_URL?.trim() ||
+      "https://api.openai.com/v1",
     port: Number(process.env.REALLITY_PORT ?? 3000),
     showHelp: false,
     showVersion: false,
@@ -129,7 +131,7 @@ export async function runCli(argv: string[] = process.argv.slice(2)): Promise<nu
     const stopTUI = startTUI(eventBus);
     const result = await agent.run(options.task);
     stopTUI();
-    console.log(`Result: ${result.message}`);
+    console.log(`Result: ${result.answer || result.message}`);
     return result.success ? 0 : 1;
   }
 

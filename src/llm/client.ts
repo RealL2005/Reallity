@@ -48,6 +48,7 @@ export interface ChatRequestBody {
   messages: ChatMessage[];
   tools?: ToolSchemaEntry[];
   stream: true;
+  stream_options?: { include_usage: true };
   temperature?: number;
   max_tokens?: number;
 }
@@ -65,6 +66,7 @@ export function buildChatRequestBody(
     model: options.model,
     messages,
     stream: true,
+    stream_options: { include_usage: true },
     ...(tools.length > 0 ? { tools } : {}),
     ...(options.temperature === undefined
       ? {}
@@ -228,6 +230,8 @@ export class OpenAICompatibleClient {
       } else if (event.type === "tool_call_delta") {
         handlers.onToolCall(event.toolCall);
         handlers.onFinish(event.finishReason ?? null);
+      } else if (event.type === "usage") {
+        handlers.onUsage(event.usage);
       }
     }
   }

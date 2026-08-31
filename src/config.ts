@@ -33,6 +33,10 @@ export function loadEnvFile(
     const rawValue = withoutExport.slice(separator + 1).trim();
     const value = stripQuotes(rawValue);
 
+    if (value.length === 0) {
+      continue;
+    }
+
     if (process.env[key] === undefined) {
       process.env[key] = value;
     }

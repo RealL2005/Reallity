@@ -18,6 +18,9 @@ interface TuiSnapshot {
   state: AgentState;
   llm: string;
   tool: string;
+  toolArgs?: Record<string, unknown>;
+  toolOutput?: string;
+  toolError?: string;
   diff?: DiffView;
   usage?: LLMUsage;
   events: number;
@@ -50,9 +53,14 @@ function TuiApp({ bus }: TuiAppProps) {
             next.usage = event.usage;
           } else if (event.type === "tool_start") {
             next.tool = `Running ${event.tool}`;
+            next.toolArgs = event.args;
+            next.toolOutput = undefined;
+            next.toolError = undefined;
             next.diff = undefined;
           } else if (event.type === "tool_result") {
             next.tool = `${event.tool} ${event.success ? "ok" : "failed"}`;
+            next.toolOutput = event.output;
+            next.toolError = event.error;
             next.diff = event.diff;
           } else if (event.type === "verification") {
             next.tool = event.passed ? "Tests passed" : "Tests failed";
@@ -103,6 +111,15 @@ function TuiApp({ bus }: TuiAppProps) {
           Tool
         </Text>
         <Text>{snapshot.tool || "No tool activity yet"}</Text>
+        {snapshot.toolArgs ? (
+          <Text color="gray">{formatToolArgs(snapshot.toolArgs)}</Text>
+        ) : null}
+        {snapshot.toolOutput ? (
+          <Text>{snapshot.toolOutput}</Text>
+        ) : null}
+        {snapshot.toolError ? (
+          <Text color="red">{snapshot.toolError}</Text>
+        ) : null}
       </Box>
 
       {snapshot.diff ? (
@@ -168,4 +185,13 @@ export function cleanLlmText(content: string): string {
     .replace(/<tool_calls>[\s\S]*?<\/tool_calls>/gi, "")
     .trim();
   return withoutToolTags || "(tool calls)";
+}
+
+function formatToolArgs(args: Record<string, unknown>): string {
+  const entries = Object.entries(args).map(([key, value]) => {
+    const text =
+      typeof value === "string" ? value : JSON.stringify(value);
+    return `${key}: ${text}`;
+  });
+  return entries.join(" | ");
 }

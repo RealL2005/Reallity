@@ -70,3 +70,23 @@ test("SSEParser emits reasoning_content deltas", () => {
     { type: "reasoning_delta", content: "think", finishReason: null },
   ]);
 });
+
+test("SSEParser emits usage events", () => {
+  const parser = new SSEParser();
+  const events = parser.push(
+    'data: {"id":"1","choices":[],"usage":{"prompt_tokens":5,"completion_tokens":2,"total_tokens":7,"prompt_cache_hit_tokens":1,"prompt_cache_miss_tokens":4}}\n\n',
+  );
+
+  expect(events).toEqual([
+    {
+      type: "usage",
+      usage: {
+        promptTokens: 5,
+        completionTokens: 2,
+        totalTokens: 7,
+        promptCacheHitTokens: 1,
+        promptCacheMissTokens: 4,
+      },
+    },
+  ]);
+});
