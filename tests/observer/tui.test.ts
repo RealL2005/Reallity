@@ -1,5 +1,9 @@
 import { test, expect } from "bun:test";
-import { cleanLlmText, stateColor } from "../../src/observer/tui.tsx";
+import {
+  cleanLlmText,
+  stateColor,
+  tailLines,
+} from "../../src/observer/tui.tsx";
 
 test("stateColor gives each FSM state a distinct color", () => {
   const states = [
@@ -26,4 +30,22 @@ test("cleanLlmText removes XML tool calls without truncating long text", () => {
 
   expect(cleaned).not.toContain("<tool_calls>");
   expect(cleaned).toContain(long);
+});
+
+test("tailLines keeps the tail and reports omitted lines", () => {
+  const content = Array.from({ length: 30 }, (_, index) => `line-${index}`).join(
+    "\n",
+  );
+
+  const result = tailLines(content, 5);
+  const lines = result.split("\n");
+
+  expect(lines[0]).toContain("25 earlier lines hidden");
+  expect(lines.slice(1)).toEqual([
+    "line-25",
+    "line-26",
+    "line-27",
+    "line-28",
+    "line-29",
+  ]);
 });

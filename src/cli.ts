@@ -131,7 +131,6 @@ export async function runCli(argv: string[] = process.argv.slice(2)): Promise<nu
     const stopTUI = startTUI(eventBus);
     const result = await agent.run(options.task);
     stopTUI();
-    console.log(`Result: ${result.answer || result.message}`);
     return result.success ? 0 : 1;
   }
 

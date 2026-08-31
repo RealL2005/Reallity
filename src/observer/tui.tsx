@@ -97,7 +97,14 @@ function TuiApp({ bus }: TuiAppProps) {
         <Text bold color="white">
           LLM
         </Text>
-        <Text>{snapshot.llm || "Waiting for planner..."}</Text>
+        {snapshot.llm ? (
+          renderMarkdown(tailLines(snapshot.llm, 18))
+        ) : (
+          <Text>Waiting for planner...</Text>
+        )}
+        {snapshot.llm.length > 18 ? (
+          <Text color="gray">showing last 18 lines; full answer in trace.html</Text>
+        ) : null}
       </Box>
 
       <Box
@@ -115,10 +122,10 @@ function TuiApp({ bus }: TuiAppProps) {
           <Text color="gray">{formatToolArgs(snapshot.toolArgs)}</Text>
         ) : null}
         {snapshot.toolOutput ? (
-          <Text>{snapshot.toolOutput}</Text>
+          <Text>{tailLines(snapshot.toolOutput, 12)}</Text>
         ) : null}
         {snapshot.toolError ? (
-          <Text color="red">{snapshot.toolError}</Text>
+          <Text color="red">{tailLines(snapshot.toolError, 12)}</Text>
         ) : null}
       </Box>
 
@@ -187,6 +194,19 @@ export function cleanLlmText(content: string): string {
   return withoutToolTags || "(tool calls)";
 }
 
+export function tailLines(content: string, maxLines: number): string {
+  const lines = content.split("\n");
+  if (lines.length <= maxLines) {
+    return content;
+  }
+
+  const omitted = lines.length - maxLines;
+  return [
+    `... [${omitted} earlier lines hidden]`,
+    ...lines.slice(-maxLines),
+  ].join("\n");
+}
+
 function formatToolArgs(args: Record<string, unknown>): string {
   const entries = Object.entries(args).map(([key, value]) => {
     const text =
@@ -194,4 +214,60 @@ function formatToolArgs(args: Record<string, unknown>): string {
     return `${key}: ${text}`;
   });
   return entries.join(" | ");
+}
+
+function renderMarkdown(content: string): React.ReactNode[] {
+  const lines = content.split("\n");
+  const nodes: React.ReactNode[] = [];
+  let inCodeBlock = false;
+
+  for (let index = 0; index < lines.length; index += 1) {
+    const line = lines[index];
+    if (line.trim().startsWith("```")) {
+      inCodeBlock = !inCodeBlock;
+      continue;
+    }
+
+    if (inCodeBlock) {
+      nodes.push(
+        <Text key={`code-${index}`} color="yellow">
+          {line}
+        </Text>,
+      );
+      continue;
+    }
+
+    if (/^#{1,6}\s+/.test(line)) {
+      nodes.push(
+        <Text key={`h-${index}`} bold color="cyan">
+          {cleanInlineMarkdown(line.replace(/^#{1,6}\s+/, ""))}
+        </Text>,
+      );
+      continue;
+    }
+
+    if (/^\s*\|.*\|\s*$/.test(line)) {
+      nodes.push(
+        <Text key={`table-${index}`} color="gray">
+          {cleanInlineMarkdown(line)}
+        </Text>,
+      );
+      continue;
+    }
+
+    nodes.push(
+      <Text key={`line-${index}`}>
+        {cleanInlineMarkdown(line)}
+      </Text>,
+    );
+  }
+
+  return nodes;
+}
+
+function cleanInlineMarkdown(content: string): string {
+  return content
+    .replace(/\*\*([^*]+)\*\*/g, "$1")
+    .replace(/`([^`]+)`/g, "$1")
+    .replace(/^\s*>+\s?/, "");
 }
