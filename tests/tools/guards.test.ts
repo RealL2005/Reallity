@@ -4,6 +4,7 @@ import {
   assertUniqueMatch,
   buildBashEnv,
   classifyHighRiskCommand,
+  isMutatingBashCommand,
 } from "../../src/tools/guards.ts";
 import { TOOL_SCHEMAS, toolNameSchema } from "../../src/tools/schemas.ts";
 
@@ -58,6 +59,15 @@ test("classifyHighRiskCommand blocks recursive deletion and shell-piped download
 test("classifyHighRiskCommand allows normal inspection commands", () => {
   expect(classifyHighRiskCommand("ls -la").blocked).toBe(false);
   expect(classifyHighRiskCommand("bun test").blocked).toBe(false);
+});
+
+test("isMutatingBashCommand detects file and repo mutation", () => {
+  expect(isMutatingBashCommand("find . -type f")).toBe(false);
+  expect(isMutatingBashCommand("grep -R TODO src")).toBe(false);
+  expect(isMutatingBashCommand("cat > file.txt")).toBe(true);
+  expect(isMutatingBashCommand("mkdir new-dir")).toBe(true);
+  expect(isMutatingBashCommand("git add .")).toBe(true);
+  expect(isMutatingBashCommand("npm install")).toBe(true);
 });
 
 test("TOOL_SCHEMAS exposes the orthogonal four plus list_dir", () => {

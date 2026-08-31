@@ -4,7 +4,7 @@ import { execFile } from "node:child_process";
 import { promisify } from "node:util";
 import { tmpdir } from "node:os";
 import path from "node:path";
-import { ReallityAgent } from "../src/agent.ts";
+import { ReallityAgent, looksLikeReadOnlyTask } from "../src/agent.ts";
 import { EventBus } from "../src/observer/events.ts";
 import type { ChatMessage, LLMResponse } from "../src/llm/types.ts";
 import type { VerificationResult } from "../src/verify/runner.ts";
@@ -283,4 +283,11 @@ test("agent forces verify after repeated tool-calling rounds", async () => {
 
   expect(result.success).toBe(true);
   expect(bus.history.filter((event) => event.type === "tool_start").length).toBe(6);
+});
+
+test("looksLikeReadOnlyTask classifies inspection requests as read-only", () => {
+  expect(looksLikeReadOnlyTask("统计当前项目有效代码行数")).toBe(true);
+  expect(looksLikeReadOnlyTask("解释 src/agent.ts 的流程")).toBe(true);
+  expect(looksLikeReadOnlyTask("实现一个命令行统计工具")).toBe(false);
+  expect(looksLikeReadOnlyTask("修复 AST 护栏 bug")).toBe(false);
 });

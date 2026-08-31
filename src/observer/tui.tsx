@@ -69,24 +69,36 @@ function TuiApp({ bus }: TuiAppProps) {
   return (
     <Box flexDirection="column" paddingX={1}>
       <Box justifyContent="space-between">
-        <Text bold color="cyan">
+        <Text bold color={stateColor(snapshot.state)}>
           Reallity
         </Text>
-        <Text color="gray">
+        <Text color={stateColor(snapshot.state)}>
           state: {snapshot.state}
           {snapshot.running ? " • " : ""}
           {snapshot.running ? "running" : "done"}
         </Text>
       </Box>
 
-      <Box borderStyle="round" flexDirection="column" paddingX={1} marginY={1}>
+      <Box
+        borderStyle="round"
+        borderColor={stateColor(snapshot.state)}
+        flexDirection="column"
+        paddingX={1}
+        marginY={1}
+      >
         <Text bold color="white">
           LLM
         </Text>
         <Text>{snapshot.llm || "Waiting for planner..."}</Text>
       </Box>
 
-      <Box borderStyle="round" flexDirection="column" paddingX={1} marginBottom={1}>
+      <Box
+        borderStyle="round"
+        borderColor={stateColor(snapshot.state)}
+        flexDirection="column"
+        paddingX={1}
+        marginBottom={1}
+      >
         <Text bold color="white">
           Tool
         </Text>
@@ -94,7 +106,13 @@ function TuiApp({ bus }: TuiAppProps) {
       </Box>
 
       {snapshot.diff ? (
-        <Box borderStyle="round" flexDirection="column" paddingX={1} marginBottom={1}>
+        <Box
+          borderStyle="round"
+          borderColor={stateColor(snapshot.state)}
+          flexDirection="column"
+          paddingX={1}
+          marginBottom={1}
+        >
           <Text bold color="white">
             Diff: {snapshot.diff.path}
           </Text>
@@ -126,10 +144,28 @@ export function startTUI(bus: EventBus): () => void {
   };
 }
 
-function cleanLlmText(content: string): string {
+export function stateColor(state: AgentState): string {
+  switch (state) {
+    case "init":
+      return "gray";
+    case "planner":
+      return "cyan";
+    case "executor":
+      return "yellow";
+    case "verify":
+      return "blue";
+    case "commit":
+      return "green";
+    case "rollback":
+      return "red";
+    case "finish":
+      return "green";
+  }
+}
+
+export function cleanLlmText(content: string): string {
   const withoutToolTags = content
     .replace(/<tool_calls>[\s\S]*?<\/tool_calls>/gi, "")
     .trim();
-  const display = withoutToolTags || "(tool calls)";
-  return display.length > 160 ? `${display.slice(0, 160)}...` : display;
+  return withoutToolTags || "(tool calls)";
 }

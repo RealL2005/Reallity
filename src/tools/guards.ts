@@ -110,3 +110,15 @@ export function classifyHighRiskCommand(command: string): RiskAssessment {
 
   return { blocked: false };
 }
+
+const MUTATING_BASH_PATTERNS: RegExp[] = [
+  /\b(echo|printf|cat)\b[^\n]*>>?/i,
+  /\b(mkdir|touch|rm|mv|cp|ln|chmod|chown)\b/i,
+  /\b(git\s+(add|commit|reset|checkout|clean|rm|mv))\b/i,
+  /\b(npm|pnpm|yarn|bun)\s+(install|add|remove|uninstall)\b/i,
+  /\b(tee|sed\s+-i|perl\s+-i|python\b[^\n]*open\()/i,
+];
+
+export function isMutatingBashCommand(command: string): boolean {
+  return MUTATING_BASH_PATTERNS.some((pattern) => pattern.test(command));
+}

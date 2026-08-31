@@ -1,9 +1,12 @@
 import { ContextManager } from "./core/context.ts";
+import type { ToolCall } from "./core/context.ts";
 import type { ChatMessage, LLMResponse } from "./llm/types.ts";
 import type { StreamCompletionOptions } from "./llm/client.ts";
 import { CircuitBreaker, FSMEngine } from "./fsm/engine.ts";
 import { extractChecklist } from "./fsm/planner.ts";
 import { executeTool } from "./tools/executor.ts";
+import type { ToolResult } from "./tools/executor.ts";
+import { isMutatingBashCommand } from "./tools/guards.ts";
 import { EventBus } from "./observer/events.ts";
 import { GitCheckpoint } from "./governance/checkpoint.ts";
 import {
@@ -53,6 +56,7 @@ export class ReallityAgent {
   private readonly runTests: RunTests;
   private readonly commitMessagePrefix: string;
   private toolRounds = 0;
+  private readOnly = false;
 
   constructor(options: ReallityAgentOptions) {
     this.workspaceRoot = options.workspaceRoot;
@@ -71,6 +75,7 @@ export class ReallityAgent {
 
   async run(task: string): Promise<AgentRunResult> {
     const started = Date.now();
+    this.readOnly = looksLikeReadOnlyTask(task);
     this.emit({ type: "state", state: "init", timestamp: started });
     this.context.appendUser(task);
     const snapshot = await this.checkpoint.capture();
@@ -138,7 +143,7 @@ export class ReallityAgent {
   }
 
   private async plan(): Promise<void> {
-    const response = await this.complete();
+    const response = await this.complete("planner");
     this.context.appendAssistant(
       response.content,
       response.toolCalls,
@@ -153,7 +158,7 @@ export class ReallityAgent {
   }
 
   private async execute(): Promise<void> {
-    const response = await this.complete();
+    const response = await this.complete("executor");
     this.context.appendAssistant(
       response.content,
       response.toolCalls,
@@ -175,9 +180,7 @@ export class ReallityAgent {
         timestamp: Date.now(),
       });
 
-      const result = await executeTool(call, {
-        workspaceRoot: this.workspaceRoot,
-      });
+      const result = await this.executeCall(call);
 
       this.emit({
         type: "tool_result",
@@ -212,6 +215,39 @@ export class ReallityAgent {
     }
   }
 
+  private async executeCall(
+    call: ToolCall,
+  ): Promise<ToolResult> {
+    if (this.readOnly && call.function.name === "edit_file") {
+      return {
+        toolCallId: call.id,
+        name: "edit_file",
+        output: "",
+        success: false,
+        error: "READ-ONLY task forbids edit_file.",
+      };
+    }
+
+    if (this.readOnly && call.function.name === "bash") {
+      const args = JSON.parse(call.function.arguments || "{}") as {
+        command?: string;
+      };
+      if (isMutatingBashCommand(args.command ?? "")) {
+        return {
+          toolCallId: call.id,
+          name: "bash",
+          output: "",
+          success: false,
+          error: "READ-ONLY task forbids mutating bash commands.",
+        };
+      }
+    }
+
+    return executeTool(call, {
+      workspaceRoot: this.workspaceRoot,
+    });
+  }
+
   private async verify(task: string): Promise<void> {
     const verification = await this.runTests(this.workspaceRoot);
     this.emit({
@@ -222,6 +258,10 @@ export class ReallityAgent {
     });
 
     if (verification.passed || looksLikeNoTests(verification.output)) {
+      if (!(await this.checkpoint.hasChanges())) {
+        this.transition("commit");
+        return;
+      }
       await this.review(task);
       return;
     }
@@ -306,8 +346,12 @@ export class ReallityAgent {
     this.transition("planner");
   }
 
-  private async complete(): Promise<LLMResponse> {
-    const response = await this.client.streamCompletion(this.buildMessages());
+  private async complete(
+    mode: "planner" | "executor",
+  ): Promise<LLMResponse> {
+    const response = await this.client.streamCompletion(
+      this.buildMessages(mode),
+    );
     this.emit({
       type: "llm",
       content: response.content,
@@ -318,25 +362,52 @@ export class ReallityAgent {
     return response;
   }
 
-  private buildMessages(): ChatMessage[] {
+  private buildMessages(mode: "planner" | "executor"): ChatMessage[] {
     const messages = this.context.serializeOpenAI();
     messages[0] = {
       ...messages[0],
-      content: this.buildSystemPrompt(),
+      content: this.buildSystemPrompt(mode),
     };
     return messages;
   }
 
-  private buildSystemPrompt(): string {
+  private buildSystemPrompt(mode: "planner" | "executor"): string {
     const memory = this.context.workingMemory;
     const checklist = memory.checklist
       .map((item) => `- [${item.status === "done" ? "x" : " "}] ${item.id}`)
       .join("\n");
 
+    const plannerRules = [
+      "You are in PLANNER state.",
+      "Analyze the user's task and produce a concise checklist of actionable steps.",
+      "Each checklist item must start with '- [ ]'.",
+      "Do NOT call tools in this state.",
+      "After the checklist, stop.",
+    ].join("\n");
+    const executorRules = [
+      "You are in EXECUTOR state.",
+      "Work only on the current incomplete checklist item.",
+      "Use tools when you need to read or modify the repository.",
+      "After receiving tool results, decide whether the current item is complete.",
+      "If the current item is complete, respond with a short final summary and NO tool calls.",
+      "Do not repeat completed work or call unnecessary read-only tools.",
+    ].join("\n");
+    const readOnlyRules = this.readOnly
+      ? [
+          "READ-ONLY TASK. Do not create, modify, or delete files.",
+          "Do not run mutating bash commands such as mkdir, rm, cat >, git add, npm install, or sed -i.",
+          "Use read_file, list_dir, glob, and non-mutating bash commands to inspect and compute the answer.",
+          "When you have the answer, output it and call NO tools.",
+        ].join("\n")
+      : "";
+
     return [
       "You are Reallity, a native coding agent harness.",
-      "Work from the current task checklist. Use tools to inspect and modify the repository.",
-      "After making code changes, run the verification gate before claiming completion.",
+      "Interpret the user's request first.",
+      "If the task asks for information, statistics, explanation, or inspection, DO NOT create or modify files; answer directly and then stop with no tool calls.",
+      "Only create or modify files when the user explicitly asks to build, add, change, fix, or refactor code.",
+      readOnlyRules,
+      mode === "planner" ? plannerRules : executorRules,
       "",
       `Current goal: ${memory.currentGoal || "Follow the user's request"}`,
       "",
@@ -384,4 +455,41 @@ function extractPath(argumentsJson: string): string {
   } catch {
     return "";
   }
+}
+
+export function looksLikeReadOnlyTask(task: string): boolean {
+  const readOnlyWords = [
+    "统计",
+    "计算",
+    "解释",
+    "分析",
+    "查看",
+    "列出",
+    "检查",
+    "多少",
+    "多少行",
+    "是否有",
+    "找出",
+    "总结",
+  ];
+  const changeWords = [
+    "实现",
+    "创建",
+    "添加",
+    "新增",
+    "修改",
+    "修复",
+    "重构",
+    "删除",
+    "写一个",
+    "开发",
+    "build",
+    "add",
+    "fix",
+    "implement",
+  ];
+  const hasChangeIntent = changeWords.some((word) => task.includes(word));
+  const hasReadOnlyIntent = readOnlyWords.some((word) => task.includes(word));
+
+  return hasReadOnlyIntent && !hasChangeIntent;
 }
