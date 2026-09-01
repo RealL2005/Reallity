@@ -479,21 +479,25 @@ function WorkflowView({
     );
     for (const entry of stateLog[item]) {
       const isExpanded = entry.id && expandedToolIds.has(entry.id);
+      const entryText =
+        entry.kind === "tool_start" && entry.args
+          ? `${entry.text} (${entry.args})`
+          : entry.text;
       lines.push(
-        <Text key={`${item}-${lines.length}`} color={entry.color ?? "gray"} wrap="wrap">
+        <Text
+          key={`${item}-${lines.length}`}
+          color={entry.color ?? "gray"}
+          wrap="truncate"
+        >
           {"    "}
-          {entry.kind === "tool_start" && entry.args
-            ? `${entry.text} (${entry.args})`
-            : entry.kind === "tool_result"
-              ? entry.text
-              : entry.text}
+          {truncateText(entryText, width)}
         </Text>,
       );
       if (entry.kind === "tool_result" && !isExpanded && entry.outputPreview) {
         lines.push(
-          <Text key={`out-${lines.length}`} color="gray" wrap="wrap">
+          <Text key={`out-${lines.length}`} color="gray" wrap="truncate">
             {"      └─ "}
-            {entry.outputPreview.split("\n")[0]}
+            {truncateText(entry.outputPreview.split("\n")[0], width)}
           </Text>,
         );
       }
