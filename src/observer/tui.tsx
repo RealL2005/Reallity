@@ -124,6 +124,10 @@ function TuiApp({
   const [lastLlmId, setLastLlmId] = useState<string | null>(null);
   const [workflowMaxOffset, setWorkflowMaxOffset] = useState(0);
   const [summaryMaxOffset, setSummaryMaxOffset] = useState(0);
+  const [expandedStates, setExpandedStates] = useState<Set<AgentState>>(
+    new Set(["init"]),
+  );
+  const [stateFocus, setStateFocus] = useState<AgentState>("init");
   const [tick, setTick] = useState(0);
   const [activePanel, setActivePanel] = useState<"left" | "right">("left");
   const [errorCount, setErrorCount] = useState(0);
@@ -168,6 +172,12 @@ function TuiApp({
 
         if (event.type === "state") {
           currentStateRef.current = event.state;
+          setExpandedStates((current) => {
+            const next = new Set(current);
+            next.add(event.state);
+            return next;
+          });
+          setStateFocus(event.state);
         }
         if (event.type === "llm") {
           setLastLlmId(`llm-${event.timestamp}`);
@@ -250,6 +260,30 @@ function TuiApp({
 
     if (command.length === 0) {
       if (activePanel === "left") {
+        const visible = getVisibleStates(snapshot.state, stateLog);
+        if (input === "[") {
+          setStateFocus((current) => {
+            const index = visible.indexOf(current);
+            return visible[Math.max(0, index - 1)] ?? current;
+          });
+          return;
+        }
+        if (input === "]") {
+          setStateFocus((current) => {
+            const index = visible.indexOf(current);
+            return visible[Math.min(visible.length - 1, index + 1)] ?? current;
+          });
+          return;
+        }
+        if (input === "e") {
+          setExpandedStates((current) => {
+            const next = new Set(current);
+            if (next.has(stateFocus)) next.delete(stateFocus);
+            else next.add(stateFocus);
+            return next;
+          });
+          return;
+        }
         if (key.upArrow || key.downArrow) {
           const delta = key.upArrow ? -1 : 1;
           setWorkflowOffset((current) =>
@@ -347,6 +381,8 @@ function TuiApp({
               width={leftWidth - 6}
               expandedToolIds={expandedToolIds}
               expandedLlmIds={expandedLlmIds}
+              expandedStates={expandedStates}
+              stateFocus={stateFocus}
               onMaxOffset={setWorkflowMaxOffset}
             />
           </Panel>
@@ -470,6 +506,8 @@ function WorkflowView({
   width,
   expandedToolIds,
   expandedLlmIds,
+  expandedStates,
+  stateFocus,
   onMaxOffset,
 }: {
   state: AgentState;
@@ -483,6 +521,8 @@ function WorkflowView({
   width: number;
   expandedToolIds: Set<string>;
   expandedLlmIds: Set<string>;
+  expandedStates: Set<AgentState>;
+  stateFocus: AgentState;
   onMaxOffset: (max: number) => void;
 }) {
   const order: AgentState[] = [
@@ -507,10 +547,10 @@ function WorkflowView({
   ];
 
   for (const item of visibleStates) {
-    const expandedState = item === state;
+    const expandedState = expandedStates.has(item);
     logical.push({
       text: `${expandedState ? "▼" : "▷"} ${item}`,
-      color: item === state ? "green" : "cyan",
+      color: item === stateFocus ? "green" : "cyan",
     });
     const entries = stateLog[item];
     if (!expandedState) {
@@ -992,6 +1032,22 @@ function cleanInlineMarkdown(content: string): string {
 function truncateText(content: string, maxWidth: number): string {
   if (content.length <= maxWidth) return content;
   return `${content.slice(0, Math.max(1, maxWidth - 1))}…`;
+}
+
+function getVisibleStates(
+  state: AgentState,
+  stateLog: Record<AgentState, ActivityItem[]>,
+): AgentState[] {
+  const order: AgentState[] = [
+    "init",
+    "planner",
+    "executor",
+    "verify",
+    "commit",
+    "rollback",
+    "finish",
+  ];
+  return order.filter((item) => item === state || stateLog[item].length > 0);
 }
 
 function formatToolArgs(args: Record<string, unknown>): string {
