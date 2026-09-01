@@ -54,6 +54,11 @@ interface ActivityItem {
   errorSignature?: string;
 }
 
+interface ColoredLine {
+  text: string;
+  color?: string;
+}
+
 function TuiApp({
   bus,
   model = "gpt-4.1-mini",
@@ -71,13 +76,13 @@ function TuiApp({
   const bannerHeight = 5;
   const summaryHeight = 8;
   const innerHeight = Math.max(20, terminalHeight - bannerHeight - 1);
-  const workflowHeight = Math.max(8, innerHeight - summaryHeight - 1);
+  const workflowHeight = Math.max(8, innerHeight - summaryHeight);
   const llmHeight = 4;
   const tokenHeight = 5;
   const commandHeight = 3;
   const diffHeight = Math.max(
     8,
-    innerHeight - llmHeight - tokenHeight - commandHeight - 4,
+    innerHeight - llmHeight - tokenHeight - commandHeight,
   );
   const [showSplash, setShowSplash] = useState(true);
   const [snapshot, setSnapshot] = useState<TuiSnapshot>({
@@ -437,7 +442,7 @@ function Panel({
       borderColor={color}
       flexDirection="column"
       paddingX={1}
-      marginBottom={1}
+      marginBottom={0}
       height={height}
       width={width}
       overflowY={height ? "hidden" : undefined}
@@ -494,14 +499,17 @@ function WorkflowView({
   const failedVerify = stateLog.verify.some((entry) =>
     entry.text.includes("✗ tests failed"),
   );
-  const logical: string[] = [
-    `Task: ${task || "(no task)"}`,
+  const logical: ColoredLine[] = [
+    { text: `Task: ${task || "(no task)"}`, color: "white" },
     ...renderTopologyLines(state, failedVerify, tick),
-    "──────────────────────────────",
+    { text: "──────────────────────────────", color: "gray" },
   ];
 
   for (const item of visibleStates) {
-    logical.push(`${item === state ? "> " : "  "}${item}`);
+    logical.push({
+      text: `${item === state ? "> " : "  "}${item}`,
+      color: item === state ? "green" : "cyan",
+    });
     for (const entry of stateLog[item]) {
       const isExpanded = entry.id && expandedToolIds.has(entry.id);
       const isLlmExpanded = entry.id && expandedLlmIds.has(entry.id);
@@ -520,19 +528,26 @@ function WorkflowView({
               )}" (按 Enter 查看完整文本)`
             : `LLM Output: "${content}"`;
       }
-      logical.push(`    ${truncateText(entryText, width)}`);
+      logical.push({
+        text: `    ${truncateText(entryText, width)}`,
+        color: entry.color ?? "gray",
+      });
       if (entry.kind === "tool_result" && !isExpanded && entry.outputPreview) {
-        logical.push(
-          `      └─ ${truncateText(entry.outputPreview.split("\n")[0], width)}`,
-        );
+        logical.push({
+          text: `      └─ ${truncateText(entry.outputPreview.split("\n")[0], width)}`,
+          color: "gray",
+        });
       }
       if (entry.kind === "tool_result" && isExpanded && entry.fullText) {
-        logical.push(entry.fullText);
+        logical.push({ text: entry.fullText, color: "white" });
       }
     }
   }
 
-  const maxOffset = Math.max(0, logical.length - height);
+  const physicalCount = logical.flatMap((line) =>
+    wrapAnsi(line.text, width, { hard: true }).split("\n"),
+  ).length;
+  const maxOffset = Math.max(0, physicalCount - height);
   useEffect(() => {
     onMaxOffset(maxOffset);
   }, [maxOffset, onMaxOffset]);
@@ -551,7 +566,7 @@ function renderTopologyLines(
   state: AgentState,
   failedVerify: boolean,
   tick: number,
-): string[] {
+): ColoredLine[] {
   const order: AgentState[] = [
     "init",
     "planner",
@@ -567,16 +582,20 @@ function renderTopologyLines(
       const reached = stateIndex >= index;
       const active = item === state;
       const skipped = !reached;
-      const mark = active ? "●" : " ";
       const arrow = index < order.length - 1 ? " ─▶ " : "";
-      return `${active ? `[${mark} ` : "["}${active ? "" : item}${active ? " " : ""}]${arrow}`;
+      if (active) return `[● ${item.toUpperCase()}]${arrow}`;
+      if (reached) return `[✓ ${item}]${arrow}`;
+      return `[  ${item}]${arrow}`;
     })
     .join("");
-  const nodes: string[] = [topology];
+  const nodes: ColoredLine[] = [{ text: topology, color: "cyan" }];
   if (failedVerify) {
-    nodes.push(`verify --(fail)--▶ executor${blink ? " ⚡" : ""}`);
+    nodes.push({
+      text: `verify --(fail)--▶ executor${blink ? " ⚡" : ""}`,
+      color: "yellow",
+    });
   }
-  nodes.push("rollback ─▶ planner");
+  nodes.push({ text: "rollback ─▶ planner", color: "gray" });
   return nodes;
 }
 
@@ -596,13 +615,20 @@ function SummaryView({
   const rawLines = summary.trim()
     ? summary.split("\n")
     : ["Waiting for final summary..."];
-  const maxOffset = Math.max(0, rawLines.length - height);
+  const coloredLines: ColoredLine[] = rawLines.map((line) => ({
+    text: line,
+    color: summary.trim() ? "white" : "gray",
+  }));
+  const physicalCount = coloredLines.flatMap((line) =>
+    wrapAnsi(line.text, width, { hard: true }).split("\n"),
+  ).length;
+  const maxOffset = Math.max(0, physicalCount - height);
   useEffect(() => {
     onMaxOffset(maxOffset);
   }, [maxOffset, onMaxOffset]);
   return (
     <StringScrollable
-      lines={rawLines}
+      lines={coloredLines}
       height={height}
       offset={offset}
       width={width}
@@ -616,13 +642,15 @@ function StringScrollable({
   offset,
   width,
 }: {
-  lines: string[];
+  lines: ColoredLine[];
   height: number;
   offset: number;
   width: number;
 }) {
   const physical = lines.flatMap((line) =>
-    wrapAnsi(line, width, { hard: true }).split("\n"),
+    wrapAnsi(line.text, width, { hard: true })
+      .split("\n")
+      .map((text) => ({ text, color: line.color })),
   );
   const maxOffset = Math.max(0, physical.length - height);
   const clamped = Math.min(offset, maxOffset);
@@ -631,7 +659,9 @@ function StringScrollable({
   return (
     <Box flexDirection="column">
       {visible.map((line, index) => (
-        <Text key={index}>{line}</Text>
+        <Text key={index} color={line.color}>
+          {line.text}
+        </Text>
       ))}
       <Text color="gray">
         {clamped + 1}-{Math.min(physical.length, clamped + height)} /{" "}
@@ -695,14 +725,14 @@ function DiffViewer({
   }
 
   const viewport = Math.max(3, height - 3);
-  const logical = diffs.flatMap((diff, index) => {
+  const logical: ColoredLine[] = diffs.flatMap((diff, index) => {
     const expanded = expandedDiffs.has(index);
     const header = `${expanded ? "[-] " : "[+] "}${diff.path}`;
-    if (!expanded) return [header];
+    if (!expanded) return [{ text: header, color: "cyan" }];
     return [
-      header,
-      ...diff.oldText.split("\n").map((line) => `- ${line}`),
-      ...diff.newText.split("\n").map((line) => `+ ${line}`),
+      { text: header, color: "cyan" },
+      ...diff.oldText.split("\n").map((line) => ({ text: `- ${line}`, color: "red" })),
+      ...diff.newText.split("\n").map((line) => ({ text: `+ ${line}`, color: "green" })),
     ];
   });
   const offset = offsets[focus] ?? 0;
