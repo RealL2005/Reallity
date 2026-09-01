@@ -15,7 +15,10 @@ interface TuiAppProps {
   task?: string;
   tokenLimit?: number;
   workspaceRoot?: string;
-  onTask?: (task: string) => void;
+  resumed?: boolean;
+  splashMs?: number;
+  onAsk?: (text: string) => void;
+  onSave?: (sessionPath?: string) => void;
 }
 
 interface DiffView {
@@ -64,31 +67,34 @@ interface ColoredLine {
 
 type PanelId =
   | "topology"
+  | "conversation"
   | "workflow"
   | "summary"
   | "llm"
   | "token"
-  | "diff"
-  | "command";
+  | "diff";
 
 const PANEL_ORDER: PanelId[] = [
   "topology",
+  "conversation",
   "workflow",
   "summary",
   "llm",
   "token",
   "diff",
-  "command",
 ];
 
-function TuiApp({
+export function TuiApp({
   bus,
   model = "gpt-4.1-mini",
   mode = "tui",
   task = "",
   tokenLimit = 200_000,
   workspaceRoot = process.cwd(),
-  onTask,
+  resumed = false,
+  splashMs = 2_200,
+  onAsk,
+  onSave,
 }: TuiAppProps) {
   const { stdout } = useStdout();
   const contentWidth = Math.max(40, stdout.columns - 2);
@@ -115,9 +121,16 @@ function TuiApp({
     state: "init",
     llm: "",
     events: 0,
-    running: true,
+    running: false,
   });
   const [usageTotals, setUsageTotals] = useState<LLMUsage>({
+    promptTokens: 0,
+    completionTokens: 0,
+    totalTokens: 0,
+    promptCacheHitTokens: 0,
+    promptCacheMissTokens: 0,
+  });
+  const [currentUsage, setCurrentUsage] = useState({
     promptTokens: 0,
     completionTokens: 0,
     totalTokens: 0,
@@ -156,6 +169,47 @@ function TuiApp({
   const [tick, setTick] = useState(0);
   const [activePanel, setActivePanel] = useState<PanelId>("workflow");
   const [errorCount, setErrorCount] = useState(0);
+
+  const appendActivity = (item: ActivityItem) => {
+    setStateLog((current) => {
+      const state = currentStateRef.current;
+      return { ...current, [state]: [...current[state], item] };
+    });
+  };
+
+  const resetTaskView = () => {
+    setStateLog({
+      init: [],
+      planner: [],
+      executor: [],
+      verify: [],
+      commit: [],
+      rollback: [],
+      finish: [],
+    });
+    setDiffs([]);
+    setSnapshot((current) => ({
+      ...current,
+      summary: "",
+      llm: "",
+      currentTool: undefined,
+      toolError: undefined,
+    }));
+    setWorkflowOffset(0);
+    setSummaryOffset(0);
+    setLlmOffset(0);
+    setDiffFocus(0);
+    setDiffOffsets([]);
+    setErrorCount(0);
+    setCurrentUsage({
+      promptTokens: 0,
+      completionTokens: 0,
+      totalTokens: 0,
+      promptCacheHitTokens: 0,
+      promptCacheMissTokens: 0,
+    });
+  };
+
   const workflowMax = useMemo(() => {
     const physicalCount = countWorkflowLines(
       snapshot.state,
@@ -187,7 +241,7 @@ function TuiApp({
   }, [snapshot.llm, rightWidth, llmHeight]);
 
   useEffect(() => {
-    const timer = setTimeout(() => setShowSplash(false), 2_200);
+    const timer = setTimeout(() => setShowSplash(false), splashMs);
     return () => clearTimeout(timer);
   }, []);
 
@@ -203,11 +257,17 @@ function TuiApp({
           const next = {
             ...current,
             events: current.events + 1,
-            running: event.type !== "finish",
           };
 
           if (event.type === "state") {
             next.state = event.state;
+          } else if (event.type === "session_task_start") {
+            next.running = true;
+          } else if (event.type === "session_task_end") {
+            next.running = false;
+          } else if (event.type === "finish") {
+            next.running = false;
+            next.summary = event.answer || event.message;
           } else if (event.type === "llm") {
             next.llm = cleanLlmText(event.content);
             next.usage = event.usage;
@@ -217,13 +277,14 @@ function TuiApp({
           } else if (event.type === "tool_result") {
             next.currentTool = event.tool;
             next.toolError = event.error;
-          } else if (event.type === "finish") {
-            next.summary = event.answer || event.message;
           }
 
           return next;
         });
 
+        if (event.type === "session_task_start") {
+          resetTaskView();
+        }
         if (event.type === "state") {
           currentStateRef.current = event.state;
           setExpandedStates((current) => {
@@ -236,6 +297,16 @@ function TuiApp({
         if (event.type === "llm") {
           setLastLlmId(`llm-${event.timestamp}`);
           setUsageTotals((current) => ({
+            promptTokens: current.promptTokens + event.usage.promptTokens,
+            completionTokens:
+              current.completionTokens + event.usage.completionTokens,
+            totalTokens: current.totalTokens + event.usage.totalTokens,
+            promptCacheHitTokens:
+              current.promptCacheHitTokens + event.usage.promptCacheHitTokens,
+            promptCacheMissTokens:
+              current.promptCacheMissTokens + event.usage.promptCacheMissTokens,
+          }));
+          setCurrentUsage((current) => ({
             promptTokens: current.promptTokens + event.usage.promptTokens,
             completionTokens:
               current.completionTokens + event.usage.completionTokens,
@@ -285,20 +356,43 @@ function TuiApp({
 
     if (key.return) {
       if (command.trim()) {
-        const taskCommand = parseTaskCommand(command);
-        if (taskCommand) {
-          onTask?.(taskCommand);
-        } else {
-          void runCommand(command, workspaceRoot, (item) =>
-            setStateLog((current) => {
-              const state = currentStateRef.current;
-              return {
-                ...current,
-                [state]: [...current[state], item],
-              };
-            }),
-          );
+        if (snapshot.running) {
+          setCommand("");
+          return;
         }
+        const parsed = parseCommand(command);
+        if (parsed) {
+          switch (parsed.type) {
+            case "ask":
+              onAsk?.(parsed.text);
+              break;
+            case "run":
+              void runCommand(parsed.command, workspaceRoot, appendActivity);
+              break;
+            case "help":
+              appendActivity({
+                kind: "notice",
+                text: "Commands: /task <text> · /run <cmd> · /bash <cmd> · /save [path] · /clear · /help",
+                color: "gray",
+              });
+              break;
+            case "save":
+              onSave?.(parsed.path);
+              break;
+            case "clear":
+              resetTaskView();
+              break;
+            case "unknown":
+              appendActivity({
+                kind: "notice",
+                text: `Unknown command: ${parsed.command} — type /help`,
+                color: "gray",
+              });
+              break;
+          }
+        }
+        setCommand("");
+        return;
       } else if (activePanel === "llm" && lastLlmId) {
         setExpandedLlmIds((current) => {
           const next = new Set(current);
@@ -405,7 +499,6 @@ function TuiApp({
       }
 
       if (input && !key.ctrl && !key.meta) {
-        setActivePanel("command");
         setCommand(input);
         return;
       }
@@ -494,7 +587,7 @@ function TuiApp({
           </Panel>
 
           <Panel title="TOKEN STATISTICS" color="blue" height={tokenHeight} width={rightWidth - 2} focused={activePanel === "token"}>
-            <TokenStats usage={usageTotals} limit={tokenLimit} errorCount={errorCount} />
+            <TokenStats usage={usageTotals} current={currentUsage} limit={tokenLimit} errorCount={errorCount} />
           </Panel>
 
           <Panel
@@ -515,19 +608,6 @@ function TuiApp({
             />
           </Panel>
 
-          <Panel
-            title="INTERACTIVE COMMAND INPUT"
-            color="yellow"
-            height={commandHeight}
-            width={rightWidth - 2}
-            focused={activePanel === "command"}
-          >
-            <Box flexDirection="row">
-              <Text color="green">{"> AgentCommand: "}</Text>
-              <Text color="white">{command}</Text>
-              <Text color="gray">█</Text>
-            </Box>
-          </Panel>
         </Box>
       </Box>
       <Text color="gray">
@@ -930,10 +1010,12 @@ function StringScrollable({
 
 function TokenStats({
   usage,
+  current,
   limit,
   errorCount,
 }: {
   usage: LLMUsage;
+  current: LLMUsage;
   limit: number;
   errorCount: number;
 }) {
@@ -952,6 +1034,9 @@ function TokenStats({
       <Text color="white">
         prompt {usage.promptTokens} · completion {usage.completionTokens} · total{" "}
         {usage.totalTokens}
+      </Text>
+      <Text color="white">
+        session {usage.totalTokens} · this task {current.totalTokens}
       </Text>
       <Text color="white">
         cache hit {cacheHitRate} · err signatures {errorCount}/3
@@ -1111,15 +1196,65 @@ function summarizeToolResult(
   return lines[0] ?? "";
 }
 
-function parseTaskCommand(command: string): string | null {
-  const trimmed = command.trim();
+export type ParsedCommand =
+  | { type: "ask"; text: string }
+  | { type: "run"; command: string }
+  | { type: "help" }
+  | { type: "save"; path?: string }
+  | { type: "clear" }
+  | { type: "unknown"; command: string };
+
+export function parseCommand(input: string): ParsedCommand | null {
+  const trimmed = input.trim();
+  if (!trimmed) return null;
   if (trimmed.startsWith("/task ")) {
-    return trimmed.slice("/task ".length).trim();
+    const text = trimmed.slice(6).trim();
+    return text ? { type: "ask", text } : { type: "unknown", command: trimmed };
   }
-  if (trimmed.startsWith("task:")) {
-    return trimmed.slice("task:".length).trim();
+  if (trimmed === "/task") return { type: "unknown", command: trimmed };
+  if (trimmed.startsWith("/run ")) {
+    return { type: "run", command: trimmed.slice(5).trim() };
   }
-  return null;
+  if (trimmed.startsWith("/bash ")) {
+    return { type: "run", command: trimmed.slice(6).trim() };
+  }
+  if (trimmed === "/help") return { type: "help" };
+  if (trimmed === "/clear") return { type: "clear" };
+  if (trimmed === "/save") return { type: "save", path: undefined };
+  if (trimmed.startsWith("/save ")) {
+    return { type: "save", path: trimmed.slice(6).trim() || undefined };
+  }
+  if (trimmed.startsWith("/")) return { type: "unknown", command: trimmed };
+  return { type: "ask", text: trimmed };
+}
+
+export interface ConversationEntry {
+  index: number;
+  task: string;
+  answer: string;
+  success: boolean;
+}
+
+export function buildConversation(events: AgentEvent[]): ConversationEntry[] {
+  const entries: ConversationEntry[] = [];
+  const pending = new Map<number, { task: string; index: number }>();
+  for (const event of events) {
+    if (event.type === "session_task_start") {
+      pending.set(event.index, { task: event.task, index: event.index });
+    } else if (event.type === "session_task_end") {
+      const start = pending.get(event.index);
+      if (start) {
+        entries.push({
+          index: event.index,
+          task: start.task,
+          answer: event.answer,
+          success: event.success,
+        });
+        pending.delete(event.index);
+      }
+    }
+  }
+  return entries.sort((a, b) => a.index - b.index);
 }
 
 async function runCommand(
@@ -1153,7 +1288,10 @@ export function startTUI(
     task?: string;
     tokenLimit?: number;
     workspaceRoot?: string;
-    onTask?: (task: string) => void;
+    resumed?: boolean;
+    splashMs?: number;
+    onAsk?: (text: string) => void;
+    onSave?: (sessionPath?: string) => void;
   } = {},
 ): () => void {
   const instance = render(<TuiApp bus={bus} {...options} />);
