@@ -38,6 +38,18 @@ interface ActivityItem {
   color?: string;
   id?: string;
   fullText?: string;
+  kind?:
+    | "llm"
+    | "tool_start"
+    | "tool_result"
+    | "verification"
+    | "checklist"
+    | "rollback"
+    | "error";
+  tool?: string;
+  args?: string;
+  outputPreview?: string;
+  errorSignature?: string;
 }
 
 function TuiApp({
@@ -453,6 +465,9 @@ function WorkflowView({
       Task: {task || "(no task)"}
     </Text>,
     ...renderTopologyLines(state, failedVerify, tick),
+    <Text key="separator" color="gray">
+      ──────────────────────────────
+    </Text>,
   ];
 
   for (const item of visibleStates) {
@@ -467,9 +482,28 @@ function WorkflowView({
       lines.push(
         <Text key={`${item}-${lines.length}`} color={entry.color ?? "gray"} wrap="wrap">
           {"    "}
-          {entry.fullText && isExpanded ? entry.fullText : entry.text}
+          {entry.kind === "tool_start" && entry.args
+            ? `${entry.text} (${entry.args})`
+            : entry.kind === "tool_result"
+              ? entry.text
+              : entry.text}
         </Text>,
       );
+      if (entry.kind === "tool_result" && !isExpanded && entry.outputPreview) {
+        lines.push(
+          <Text key={`out-${lines.length}`} color="gray" wrap="wrap">
+            {"      └─ "}
+            {entry.outputPreview.split("\n")[0]}
+          </Text>,
+        );
+      }
+      if (entry.kind === "tool_result" && isExpanded && entry.fullText) {
+        lines.push(
+          <Text key={`full-${lines.length}`} color="white" wrap="wrap">
+            {entry.fullText}
+          </Text>,
+        );
+      }
     }
   }
 
@@ -687,24 +721,58 @@ function DiffViewer({
 function summarizeActivity(event: AgentEvent): ActivityItem | null {
   switch (event.type) {
     case "llm":
-      return { text: `LLM: ${cleanLlmText(event.content)}`, color: "white" };
+      return {
+        kind: "llm",
+        text: `LLM: ${cleanLlmText(event.content)}`,
+        color: "white",
+      };
     case "tool_start":
-      return { text: `▶ ${event.tool}`, color: "yellow" };
+      return {
+        kind: "tool_start",
+        text: `▶ ${event.tool}`,
+        tool: event.tool,
+        args: formatToolArgs(event.args ?? {}),
+        color: "yellow",
+      };
     case "tool_result":
       return {
+        kind: "tool_result",
         id: `${event.tool}-${event.timestamp}`,
         text: `${event.tool} ${event.success ? "ok" : "failed"}: ……`,
         fullText: `${event.tool} ${event.success ? "ok" : "failed"}:\n${
           event.output || event.error || ""
         }`,
+        tool: event.tool,
+        outputPreview: summarizeToolResult(event),
+        errorSignature: event.error,
         color: event.success ? "green" : "red",
       };
     case "verification":
+      return {
+        kind: "verification",
+        text: event.passed ? "✓ tests passed" : "✗ tests failed",
+        color: event.passed ? "green" : "red",
+      };
+    case "checklist":
+      return {
+        kind: "checklist",
+        text: `checklist: ${event.items.map((item) => item.id).join(" → ")}`,
+        color: "cyan",
+      };
+    case "rollback":
+      return {
+        kind: "rollback",
+        text: `rollback: ${event.message}`,
+        color: event.success ? "yellow" : "red",
+      };
+    case "error":
+      return {
+        kind: "error",
+        text: `error: ${event.message}`,
+        color: "red",
+      };
     case "diagnostic":
     case "checkpoint":
-    case "checklist":
-    case "rollback":
-    case "error":
     case "finish":
     case "state":
       return null;
@@ -859,4 +927,13 @@ function cleanInlineMarkdown(content: string): string {
 function truncateText(content: string, maxWidth: number): string {
   if (content.length <= maxWidth) return content;
   return `${content.slice(0, Math.max(1, maxWidth - 1))}…`;
+}
+
+function formatToolArgs(args: Record<string, unknown>): string {
+  return Object.entries(args)
+    .map(([key, value]) => {
+      const text = typeof value === "string" ? value : JSON.stringify(value);
+      return `${key}: ${text}`;
+    })
+    .join(", ");
 }
