@@ -49,13 +49,15 @@ function TuiApp({
   const contentWidth = Math.max(40, stdout.columns - 4);
   const terminalHeight = Math.max(28, stdout.rows - 2);
   const bannerHeight = 5;
-  const workflowHeight = Math.max(12, terminalHeight - bannerHeight - 3);
+  const summaryHeight = 8;
+  const innerHeight = Math.max(20, terminalHeight - bannerHeight - 1);
+  const workflowHeight = Math.max(8, innerHeight - summaryHeight - 1);
   const llmHeight = 4;
   const tokenHeight = 5;
   const commandHeight = 3;
   const diffHeight = Math.max(
     8,
-    terminalHeight - llmHeight - tokenHeight - commandHeight - 4,
+    innerHeight - llmHeight - tokenHeight - commandHeight - 4,
   );
   const [showSplash, setShowSplash] = useState(true);
   const [snapshot, setSnapshot] = useState<TuiSnapshot>({
@@ -238,67 +240,80 @@ function TuiApp({
   }
 
   return (
-    <Box flexDirection="row" paddingX={1} height={terminalHeight}>
-      <Box flexDirection="column" width="50%" height={terminalHeight}>
-        <Text>{renderBanner("Reallity", "Small")}</Text>
-        <Panel
-          title="AUTOMATED WORKFLOWS"
-          color="cyan"
-          height={workflowHeight}
-        >
-          <WorkflowView
-            state={snapshot.state}
-            task={task}
-            stateLog={stateLog}
-            summary={snapshot.summary}
-            summaryOffset={summaryOffset}
-            tick={tick}
-          />
-        </Panel>
-      </Box>
+    <Box flexDirection="column" paddingX={1} height={terminalHeight}>
+      <Text>{renderBanner("Reallity", "Small")}</Text>
+      <Box flexDirection="row" height={innerHeight}>
+        <Box flexDirection="column" width="50%" height={innerHeight}>
+          <Panel
+            title="AUTOMATED WORKFLOWS"
+            color="cyan"
+            height={workflowHeight}
+          >
+            <WorkflowView
+              state={snapshot.state}
+              task={task}
+              stateLog={stateLog}
+              summary={snapshot.summary}
+              summaryOffset={summaryOffset}
+              tick={tick}
+            />
+          </Panel>
+          <Panel
+            title="FINAL SUMMARY"
+            color="green"
+            height={summaryHeight}
+          >
+            <SummaryView
+              summary={snapshot.summary ?? ""}
+              offset={summaryOffset}
+              height={summaryHeight - 3}
+            />
+          </Panel>
+        </Box>
 
-      <Box flexDirection="column" width="50%" height={terminalHeight}>
-        <Panel title="LLM CONTEXT" color="blue" height={llmHeight}>
-          <Text color="white">model: {model}</Text>
-          <Text color="white">mode: {mode}</Text>
-          <Text color="white">task: {task || "(no task)"}</Text>
-          {snapshot.llm ? (
-            <Text color="gray" wrap="truncate">
-              {truncateText(snapshot.llm, contentWidth - 6)}
-            </Text>
-          ) : null}
-        </Panel>
+        <Box flexDirection="column" width="50%" height={innerHeight}>
+          <Panel title="LLM CONTEXT" color="blue" height={llmHeight}>
+            <Text color="white">model: {model}</Text>
+            <Text color="white">mode: {mode}</Text>
+            <Text color="white">task: {task || "(no task)"}</Text>
+            {snapshot.llm ? (
+              <Text color="gray" wrap="truncate">
+                {truncateText(snapshot.llm, contentWidth - 6)}
+              </Text>
+            ) : null}
+          </Panel>
 
-        <Panel title="TOKEN STATISTICS" color="blue" height={tokenHeight}>
-          <TokenStats usage={usageTotals} limit={tokenLimit} />
-        </Panel>
+          <Panel title="TOKEN STATISTICS" color="blue" height={tokenHeight}>
+            <TokenStats usage={usageTotals} limit={tokenLimit} />
+          </Panel>
 
-        <Panel
-          title="FILE MODIFICATION DIFF"
-          color="blue"
-          height={diffHeight}
-        >
-          <DiffViewer
-            diffs={diffs}
-            expandedDiffs={expandedDiffs}
-            focus={diffFocus}
-            offsets={diffOffsets}
-            width={contentWidth - 6}
-            height={diffHeight - 3}
-          />
-        </Panel>
+          <Panel
+            title="FILE MODIFICATION DIFF"
+            color="blue"
+            height={diffHeight}
+          >
+            <DiffViewer
+              diffs={diffs}
+              expandedDiffs={expandedDiffs}
+              focus={diffFocus}
+              offsets={diffOffsets}
+              width={contentWidth - 6}
+              height={diffHeight - 3}
+            />
+          </Panel>
 
-        <Panel
-          title="INTERACTIVE COMMAND INPUT"
-          color="cyan"
-          height={commandHeight}
-        >
-          <Box flexDirection="row">
-            <Text color="green">{"> AgentCommand: "}</Text>
-            <Text color="white">{command}</Text>
-            <Text color="gray">█</Text>
-          </Box>
-        </Panel>
+          <Panel
+            title="INTERACTIVE COMMAND INPUT"
+            color="cyan"
+            height={commandHeight}
+          >
+            <Box flexDirection="row">
+              <Text color="green">{"> AgentCommand: "}</Text>
+              <Text color="white">{command}</Text>
+              <Text color="gray">█</Text>
+            </Box>
+          </Panel>
+        </Box>
       </Box>
     </Box>
   );
@@ -453,7 +468,9 @@ function SummaryView({
   offset: number;
   height: number;
 }) {
-  const lines = summary.split("\n");
+  const lines = summary.trim()
+    ? summary.split("\n")
+    : ["Waiting for final summary..."];
   const clamped = Math.min(offset, Math.max(0, lines.length - height));
   const visible = lines.slice(clamped, clamped + height);
   while (visible.length < height) visible.push("");
