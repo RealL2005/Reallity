@@ -141,6 +141,7 @@ function TuiApp({
   });
   const currentStateRef = useRef<AgentState>("init");
   const [summaryOffset, setSummaryOffset] = useState(0);
+  const [llmOffset, setLlmOffset] = useState(0);
   const [workflowOffset, setWorkflowOffset] = useState(0);
   const [expandedToolIds, setExpandedToolIds] = useState<Set<string>>(new Set());
   const [expandedLlmIds, setExpandedLlmIds] = useState<Set<string>>(new Set());
@@ -173,6 +174,16 @@ function TuiApp({
     ).length;
     return Math.max(0, physicalCount - Math.max(1, summaryHeight - 4));
   }, [snapshot.summary, leftWidth, summaryHeight]);
+
+  const llmMax = useMemo(() => {
+    const raw = snapshot.llm.trim()
+      ? snapshot.llm.split("\n")
+      : ["No LLM output yet"];
+    const physicalCount = raw.flatMap((line) =>
+      wrapAnsi(line, rightWidth - 6, { hard: true }).split("\n"),
+    ).length;
+    return Math.max(0, physicalCount - Math.max(1, llmHeight - 2));
+  }, [snapshot.llm, rightWidth, llmHeight]);
 
   useEffect(() => {
     const timer = setTimeout(() => setShowSplash(false), 2_200);
@@ -324,6 +335,10 @@ function TuiApp({
             );
             return next;
           });
+        } else if (activePanel === "llm") {
+          setLlmOffset((current) =>
+            Math.min(llmMax, Math.max(0, current + delta)),
+          );
         }
         return;
       }
@@ -471,11 +486,13 @@ function TuiApp({
           <Panel title="LLM CONTEXT" color="blue" height={llmHeight} width={rightWidth - 2} focused={activePanel === "llm"}>
             <Text color="white" wrap="truncate">model: {model} · mode: {mode}</Text>
             <Text color="white" wrap="truncate">task: {task || "(no task)"}</Text>
-            {/* {snapshot.llm ? (
-            <Text color="gray" wrap="truncate">
-              {cliTruncate(snapshot.llm, rightWidth - 6, { position: "end" })}
-              </Text>
-            ) : null} */}
+            <LlmContextView
+              content={snapshot.llm}
+              expanded={expandedLlmIds.has(lastLlmId ?? "")}
+              width={rightWidth - 6}
+              height={llmHeight - 3}
+              offset={llmOffset}
+            />
           </Panel>
 
           <Panel title="TOKEN STATISTICS" color="blue" height={tokenHeight} width={rightWidth - 2} focused={activePanel === "token"}>
@@ -556,6 +573,33 @@ function Panel({
       {children}
     </Box>
   );
+}
+
+function LlmContextView({
+  content,
+  expanded,
+  width,
+  height,
+  offset,
+}: {
+  content: string;
+  expanded: boolean;
+  width: number;
+  height: number;
+  offset: number;
+}) {
+  const raw = content.trim() ? content : "No LLM output yet";
+  const needsExpand = raw.includes("\n") || raw.length > width;
+  if (!expanded) {
+    return (
+      <Text color="gray" wrap="truncate">
+        {cliTruncate(raw.split("\n")[0], width, { position: "end" })}
+        {needsExpand ? "  (Enter 展开)" : ""}
+      </Text>
+    );
+  }
+  const lines = raw.split("\n").map((text) => ({ text, color: "white" }));
+  return <StringScrollable lines={lines} height={height} offset={offset} width={width} />;
 }
 
 function WorkflowView({
