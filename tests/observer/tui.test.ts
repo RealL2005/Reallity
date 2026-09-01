@@ -262,6 +262,17 @@ test("TUI renders the conversation input bar at 80x24", async () => {
     },
   );
   await new Promise((resolve) => setTimeout(resolve, 50));
+  const deadline = Date.now() + 3_000;
+  while (Date.now() < deadline) {
+    if (
+      stdout.output.includes("Reallity") &&
+      stdout.output.includes("> ") &&
+      stdout.output.includes("[Enter] 发送")
+    ) {
+      break;
+    }
+    await new Promise((resolve) => setTimeout(resolve, 20));
+  }
 
   expect(stdout.output).toContain("Reallity");
   expect(stdout.output).toContain("> ");

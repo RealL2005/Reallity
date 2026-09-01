@@ -56,15 +56,17 @@ class ScriptedClient implements ClientLike {
 
 class RecordingClient implements ClientLike {
   readonly seen: ChatMessage[][] = [];
+  readonly seenOptions: Array<Record<string, unknown> | undefined> = [];
   private calls = 0;
 
   constructor(private readonly scripts: ScriptedResponse[]) {}
 
   async streamCompletion(
     messages: ChatMessage[],
-    _options?: Record<string, unknown>,
+    options?: Record<string, unknown>,
   ): Promise<LLMResponse> {
     this.seen.push(messages);
+    this.seenOptions.push(options);
     const scripted = this.scripts[this.calls];
     this.calls += 1;
     return scripted
@@ -361,4 +363,126 @@ test("answers do not leak across agent instances sharing a context", async () =>
 
   expect(firstResult.answer).toBe("first answer");
   expect(secondResult.answer).toBe("second answer");
+});
+
+test("planner requests no tools while executor keeps tool access", async () => {
+  const client = new RecordingClient([
+    { content: "- [ ] step", toolCalls: [], finishReason: "stop", usage: usage() },
+    { content: "done", toolCalls: [], finishReason: "stop", usage: usage() },
+  ]);
+  const agent = new ReallityAgent({ workspaceRoot: root, client });
+
+  const result = await agent.run("do something");
+
+  expect(result.success).toBe(true);
+  expect(client.seenOptions[0]).toEqual({ tools: [] });
+  expect(client.seenOptions[1]).toEqual({});
+});
+
+test("read-only task finishes despite failing verification", async () => {
+  const client = new RecordingClient([
+    { content: "- [ ] count lines", toolCalls: [], finishReason: "stop", usage: usage() },
+    { content: "总行数 100", toolCalls: [], finishReason: "stop", usage: usage() },
+  ]);
+  const agent = new ReallityAgent({
+    workspaceRoot: root,
+    client,
+    runTests: async (): Promise<VerificationResult> => ({
+      passed: false,
+      exitCode: 1,
+      output: "tests/foo.test.ts:5: error: boom",
+      diagnostics: [],
+    }),
+  });
+
+  const result = await agent.run("统计代码行数");
+
+  expect(result.success).toBe(true);
+  expect(result.state).toBe("finish");
+  expect(result.answer).toContain("总行数 100");
+});
+
+test("read-only executor runs past six tool rounds to a natural summary", async () => {
+  const toolCalls = Array.from({ length: 7 }, (_, index) => ({
+    content: "",
+    toolCalls: [
+      {
+        id: `c${index}`,
+        type: "function" as const,
+        function: {
+          name: "bash",
+          arguments: JSON.stringify({ command: `echo out-${index}` }),
+        },
+      },
+    ],
+    finishReason: "tool_calls" as const,
+    usage: usage(),
+  }));
+  const client = new RecordingClient([
+    {
+      content: "- [ ] plan item",
+      toolCalls: [],
+      finishReason: "stop",
+      usage: usage(),
+    },
+    ...toolCalls,
+    {
+      content: "有效代码行数：5466",
+      toolCalls: [],
+      finishReason: "stop",
+      usage: usage(),
+    },
+  ]);
+  const agent = new ReallityAgent({
+    workspaceRoot: root,
+    client,
+    runTests: async (): Promise<VerificationResult> => ({
+      passed: false,
+      exitCode: 1,
+      output: "tests/foo.test.ts:5: error: boom",
+      diagnostics: [],
+    }),
+  });
+
+  const result = await agent.run("统计代码行数");
+
+  expect(result.success).toBe(true);
+  expect(result.answer).toBe("有效代码行数：5466");
+});
+
+test("answer prefers tool output over partial executor content", async () => {
+  const client = new RecordingClient([
+    {
+      content: "- [ ] plan item",
+      toolCalls: [],
+      finishReason: "stop",
+      usage: usage(),
+    },
+    {
+      content: "partial summary without numbers",
+      toolCalls: [
+        {
+          id: "c1",
+          type: "function",
+          function: {
+            name: "bash",
+            arguments: JSON.stringify({ command: "echo real-answer" }),
+          },
+        },
+      ],
+      finishReason: "tool_calls",
+      usage: usage(),
+    },
+  ]);
+  const agent = new ReallityAgent({
+    workspaceRoot: root,
+    client,
+    maxRounds: 3,
+  });
+
+  const result = await agent.run("统计代码行数");
+
+  expect(result.success).toBe(false);
+  expect(result.answer).toBe("real-answer");
+  expect(result.answer).not.toContain("partial summary");
 });

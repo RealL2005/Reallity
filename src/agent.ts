@@ -130,8 +130,8 @@ export class ReallityAgent {
       const message = "Task completed.";
       const answer =
         this.finalAnswer ||
-        this.lastLlmContent ||
         this.lastToolOutput ||
+        this.lastLlmContent ||
         this.toolChainSummary ||
         message;
       this.emit({
@@ -162,8 +162,8 @@ export class ReallityAgent {
         message,
         answer:
           this.finalAnswer ||
-          this.lastLlmContent ||
           this.lastToolOutput ||
+          this.lastLlmContent ||
           this.toolChainSummary,
         rounds: this.fsm.roundCount,
         tracePath: this.writeTrace(),
@@ -254,7 +254,7 @@ export class ReallityAgent {
       }
     }
 
-    if (this.toolRounds >= 6) {
+    if (this.toolRounds >= 6 && !this.readOnly) {
       this.toolRounds = 0;
       this.transition("verify");
     }
@@ -302,8 +302,18 @@ export class ReallityAgent {
       timestamp: Date.now(),
     });
 
+    if (this.readOnly) {
+      if (!verification.passed) {
+        this.context.appendUser(
+          `Verification note (read-only task, not blocking):\n${verification.output}`,
+        );
+      }
+      this.transition("commit");
+      return;
+    }
+
     if (verification.passed || looksLikeNoTests(verification.output)) {
-      if (this.readOnly || !(await this.checkpoint.hasChanges())) {
+      if (!(await this.checkpoint.hasChanges())) {
         this.transition("commit");
         return;
       }
@@ -407,8 +417,9 @@ export class ReallityAgent {
   ): Promise<LLMResponse> {
     const response = await this.client.streamCompletion(
       this.buildMessages(mode),
+      mode === "planner" ? { tools: [] } : {},
     );
-    if (response.content.trim()) {
+    if (response.content.trim() && mode === "executor") {
       this.lastLlmContent = response.content.trim();
     }
     this.emit({
