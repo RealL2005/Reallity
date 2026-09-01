@@ -1589,6 +1589,7 @@ git commit -m "feat: route TUI input to conversation and slash commands"
 ```ts
 import React from "react";
 import { render } from "ink";
+import { EventBus } from "../../src/observer/events.ts";
 import { TuiApp, computeHeights } from "../../src/observer/tui.tsx";
 
 test("computeHeights keeps the input bar visible across terminal sizes", () => {
@@ -1648,7 +1649,7 @@ test("TUI renders the conversation input bar at 80x24", async () => {
 });
 ```
 
-（`EventBus` 已在顶部 import；`buildConversation` 已在 Task 6 引入。）
+- （`buildConversation` 已在 Task 6 引入。）
 
 - [ ] **Step 2: 运行确认失败**
 
