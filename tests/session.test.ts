@@ -160,6 +160,29 @@ test("load rejects when the recorded workspace no longer exists", async () => {
   ).rejects.toThrow(/no longer exists/i);
 });
 
+test("load reuses the provided event bus and seeds its history", async () => {
+  const sessionPath = path.join(root, "session.json");
+  const session = new Session({
+    workspaceRoot: root,
+    client: new FakeClient([]),
+    savePath: sessionPath,
+  });
+  await session.ask("hi");
+
+  const bus = new EventBus();
+  const loaded = await Session.load(sessionPath, {
+    workspaceRoot: root,
+    client: new FakeClient([]),
+    eventBus: bus,
+  });
+
+  expect(loaded.session.bus).toBe(bus);
+  expect(bus.history.length).toBeGreaterThan(0);
+  expect(bus.history.some((event) => event.type === "session_task_end")).toBe(
+    true,
+  );
+});
+
 test("ask succeeds even when auto-save fails and emits an error event", async () => {
   const bus = new EventBus();
   const session = new Session({

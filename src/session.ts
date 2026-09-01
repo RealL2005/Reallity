@@ -288,7 +288,8 @@ export class Session {
       }
     }
 
-    const bus = new EventBus({ initialEvents: parsed.events });
+    const bus = options.eventBus ?? new EventBus();
+    bus.seed(parsed.events);
     const context = ContextManager.fromJSON(parsed.context, {
       maxHistoryMessages: options.maxHistoryMessages ?? 120,
     });

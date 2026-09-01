@@ -92,6 +92,10 @@ export class EventBus {
     }
   }
 
+  seed(events: AgentEvent[]): void {
+    this.events.push(...events);
+  }
+
   get history(): AgentEvent[] {
     return [...this.events];
   }

@@ -177,6 +177,7 @@ export async function runCli(argv: string[] = process.argv.slice(2)): Promise<nu
             ? options.workspace
             : undefined,
           client,
+          eventBus,
           savePath,
           model: options.model,
         });
@@ -193,6 +194,7 @@ export async function runCli(argv: string[] = process.argv.slice(2)): Promise<nu
       session = new Session({
         workspaceRoot: options.workspace,
         client,
+        eventBus,
         savePath,
         model: options.model,
       });

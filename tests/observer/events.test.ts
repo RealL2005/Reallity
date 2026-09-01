@@ -35,3 +35,18 @@ test("session and notice events are emitted and stored", () => {
     "session_task_end",
   ]);
 });
+
+test("seed appends events without notifying listeners", () => {
+  const bus = new EventBus();
+  const received: AgentEvent[] = [];
+  bus.subscribe((event) => received.push(event));
+  bus.seed([
+    { type: "state", state: "planner", timestamp: 1 },
+    { type: "session_task_start", index: 0, task: "x", timestamp: 2 },
+  ]);
+  bus.emit({ type: "notice", message: "hi", timestamp: 3 });
+
+  expect(bus.history).toHaveLength(3);
+  expect(received).toHaveLength(1);
+  expect(received[0].type).toBe("notice");
+});
