@@ -60,6 +60,8 @@ export class ReallityAgent {
   private toolRounds = 0;
   private readOnly = false;
   private finalAnswer = "";
+  private lastLlmContent = "";
+  private toolChainSummary = "";
 
   constructor(options: ReallityAgentOptions) {
     this.workspaceRoot = options.workspaceRoot;
@@ -116,18 +118,23 @@ export class ReallityAgent {
       }
 
       const message = "Task completed.";
+      const answer =
+        this.finalAnswer ||
+        this.lastLlmContent ||
+        this.toolChainSummary ||
+        message;
       this.emit({
         type: "finish",
         success: true,
         message,
-        answer: this.finalAnswer || message,
+        answer,
         timestamp: Date.now(),
       });
       return {
         success: true,
         state: this.fsm.state,
         message,
-        answer: this.finalAnswer || message,
+        answer,
         rounds: this.fsm.roundCount,
         tracePath: this.writeTrace(),
       };
@@ -142,7 +149,7 @@ export class ReallityAgent {
         success: false,
         state: this.fsm.state,
         message,
-        answer: this.finalAnswer,
+        answer: this.finalAnswer || this.lastLlmContent || this.toolChainSummary,
         rounds: this.fsm.roundCount,
         tracePath: this.writeTrace(),
       };
@@ -214,6 +221,9 @@ export class ReallityAgent {
         call.function.name,
         result.success ? result.output : (result.error ?? "tool failed"),
       );
+      this.toolChainSummary = `${call.function.name}${
+        result.success ? "" : " (failed)"
+      }`;
 
       if (call.function.name === "edit_file" && result.success) {
         this.context.addModifiedFile(extractPath(call.function.arguments));
@@ -380,6 +390,9 @@ export class ReallityAgent {
     const response = await this.client.streamCompletion(
       this.buildMessages(mode),
     );
+    if (response.content.trim()) {
+      this.lastLlmContent = response.content.trim();
+    }
     this.emit({
       type: "llm",
       content: response.content,
