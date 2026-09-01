@@ -317,11 +317,7 @@ function TuiApp({
     if (command.length === 0) {
       if (key.upArrow || key.downArrow) {
         const delta = key.upArrow ? -1 : 1;
-        if (activePanel === "workflow") {
-          setWorkflowOffset((current) =>
-            Math.min(workflowMax, Math.max(0, current + delta)),
-          );
-        } else if (activePanel === "summary") {
+        if (activePanel === "summary") {
           setSummaryOffset((current) =>
             Math.min(summaryMax, Math.max(0, current + delta)),
           );
@@ -338,6 +334,10 @@ function TuiApp({
         } else if (activePanel === "llm") {
           setLlmOffset((current) =>
             Math.min(llmMax, Math.max(0, current + delta)),
+          );
+        } else {
+          setWorkflowOffset((current) =>
+            Math.min(workflowMax, Math.max(0, current + delta)),
           );
         }
         return;
@@ -486,13 +486,13 @@ function TuiApp({
           <Panel title="LLM CONTEXT" color="blue" height={llmHeight} width={rightWidth - 2} focused={activePanel === "llm"}>
             <Text color="white" wrap="truncate">model: {model} · mode: {mode}</Text>
             <Text color="white" wrap="truncate">task: {task || "(no task)"}</Text>
-            <LlmContextView
+            {/* <LlmContextView
               content={snapshot.llm}
               expanded={expandedLlmIds.has(lastLlmId ?? "")}
               width={rightWidth - 6}
               height={llmHeight - 3}
               offset={llmOffset}
-            />
+            /> */}
           </Panel>
 
           <Panel title="TOKEN STATISTICS" color="blue" height={tokenHeight} width={rightWidth - 2} focused={activePanel === "token"}>
