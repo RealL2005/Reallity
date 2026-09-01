@@ -47,7 +47,8 @@ interface ActivityItem {
     | "verification"
     | "checklist"
     | "rollback"
-    | "error";
+    | "error"
+    | "notice";
   tool?: string;
   args?: string;
   outputPreview?: string;
@@ -1079,6 +1080,11 @@ function summarizeActivity(event: AgentEvent): ActivityItem | null {
         text: `error: ${event.message}`,
         color: "red",
       };
+    case "notice":
+      return { kind: "notice", text: event.message, color: "gray" };
+    case "session_task_start":
+    case "session_task_end":
+      return null;
     case "diagnostic":
     case "checkpoint":
     case "finish":

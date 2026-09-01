@@ -195,6 +195,12 @@ function summarize(event: AgentEvent): string {
       return escapeHtml(event.message);
     case "finish":
       return `success=${event.success}`;
+    case "session_task_start":
+      return `task #${event.index}: ${escapeHtml(event.task)}`;
+    case "session_task_end":
+      return `task #${event.index} success=${event.success}: ${escapeHtml(event.answer)}`;
+    case "notice":
+      return escapeHtml(event.message);
   }
 }
 

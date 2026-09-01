@@ -50,13 +50,33 @@ export type AgentEvent =
       message: string;
       answer?: string;
       timestamp: number;
-    };
+    }
+  | {
+      type: "session_task_start";
+      index: number;
+      task: string;
+      timestamp: number;
+    }
+  | {
+      type: "session_task_end";
+      index: number;
+      task: string;
+      success: boolean;
+      answer: string;
+      rounds: number;
+      timestamp: number;
+    }
+  | { type: "notice"; message: string; timestamp: number };
 
 type EventListener = (event: AgentEvent) => void;
 
 export class EventBus {
   private listeners = new Set<EventListener>();
-  private events: AgentEvent[] = [];
+  private events: AgentEvent[];
+
+  constructor(options: { initialEvents?: AgentEvent[] } = {}) {
+    this.events = [...(options.initialEvents ?? [])];
+  }
 
   subscribe(listener: EventListener): () => void {
     this.listeners.add(listener);

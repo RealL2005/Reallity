@@ -81,3 +81,23 @@ test("buildTraceHtml renders token audit and edit diff", () => {
   expect(html).toContain("const x = 1;");
   expect(html).toContain("const x = 2;");
 });
+
+test("buildTraceHtml renders session and notice events", () => {
+  const html = buildTraceHtml([
+    { type: "session_task_start", index: 0, task: "init project", timestamp: 1 },
+    {
+      type: "session_task_end",
+      index: 0,
+      task: "init project",
+      success: true,
+      answer: "done",
+      rounds: 2,
+      timestamp: 2,
+    },
+    { type: "notice", message: "saved to .reallity/session.json", timestamp: 3 },
+  ]);
+
+  expect(html).toContain("task #0: init project");
+  expect(html).toContain("task #0 success=true");
+  expect(html).toContain("saved to");
+});
