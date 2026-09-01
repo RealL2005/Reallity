@@ -60,6 +60,25 @@ interface ColoredLine {
   wrap?: boolean;
 }
 
+type PanelId =
+  | "topology"
+  | "workflow"
+  | "summary"
+  | "llm"
+  | "token"
+  | "diff"
+  | "command";
+
+const PANEL_ORDER: PanelId[] = [
+  "topology",
+  "workflow",
+  "summary",
+  "llm",
+  "token",
+  "diff",
+  "command",
+];
+
 function TuiApp({
   bus,
   model = "gpt-4.1-mini",
@@ -132,7 +151,7 @@ function TuiApp({
   );
   const [stateFocus, setStateFocus] = useState<AgentState>("init");
   const [tick, setTick] = useState(0);
-  const [activePanel, setActivePanel] = useState<"left" | "right">("left");
+  const [activePanel, setActivePanel] = useState<PanelId>("workflow");
   const [errorCount, setErrorCount] = useState(0);
   const workflowMax = useMemo(() => {
     const visible = getVisibleStates(snapshot.state, stateLog);
@@ -245,7 +264,10 @@ function TuiApp({
 
   useInput((input, key) => {
     if (key.tab) {
-      setActivePanel((current) => (current === "left" ? "right" : "left"));
+      setActivePanel((current) => {
+        const index = PANEL_ORDER.indexOf(current);
+        return PANEL_ORDER[(index + 1) % PANEL_ORDER.length];
+      });
       return;
     }
 
@@ -265,7 +287,7 @@ function TuiApp({
             }),
           );
         }
-      } else if (activePanel === "left" && lastLlmId) {
+      } else if (activePanel === "llm" && lastLlmId) {
         setExpandedLlmIds((current) => {
           const next = new Set(current);
           if (next.has(lastLlmId)) next.delete(lastLlmId);
@@ -284,19 +306,29 @@ function TuiApp({
     if (command.length === 0) {
       if (key.upArrow || key.downArrow) {
         const delta = key.upArrow ? -1 : 1;
-        setWorkflowOffset((current) =>
-          Math.min(workflowMax, Math.max(0, current + delta)),
-        );
+        if (activePanel === "workflow") {
+          setWorkflowOffset((current) =>
+            Math.min(workflowMax, Math.max(0, current + delta)),
+          );
+        } else if (activePanel === "summary") {
+          setSummaryOffset((current) =>
+            Math.min(summaryMax, Math.max(0, current + delta)),
+          );
+        } else if (activePanel === "diff") {
+          const max = diffMaxOffsets[diffFocus] ?? 0;
+          setDiffOffsets((current) => {
+            const next = [...current];
+            next[diffFocus] = Math.min(
+              max,
+              Math.max(0, (next[diffFocus] ?? 0) + delta),
+            );
+            return next;
+          });
+        }
         return;
       }
-      if (key.pageUp || key.pageDown) {
-        const delta = key.pageUp ? -1 : 1;
-        setSummaryOffset((current) =>
-          Math.min(summaryMax, Math.max(0, current + delta)),
-        );
-        return;
-      }
-      if (activePanel === "left") {
+
+      if (activePanel === "workflow") {
         const visible = getVisibleStates(snapshot.state, stateLog);
         if (input === "[") {
           setStateFocus((current) => {
@@ -334,20 +366,7 @@ function TuiApp({
           setExpandedToolIds(new Set());
           return;
         }
-      } else {
-        if (input === "j" || input === "k") {
-          const delta = input === "k" ? -1 : 1;
-          const max = diffMaxOffsets[diffFocus] ?? 0;
-          setDiffOffsets((current) => {
-            const next = [...current];
-            next[diffFocus] = Math.min(
-              max,
-              Math.max(0, (next[diffFocus] ?? 0) + delta),
-            );
-            return next;
-          });
-          return;
-        }
+      } else if (activePanel === "diff") {
         if (input === "[") {
           setDiffFocus((current) => Math.max(0, current - 1));
           return;
@@ -367,6 +386,12 @@ function TuiApp({
           });
           return;
         }
+      }
+
+      if (input && !key.ctrl && !key.meta) {
+        setActivePanel("command");
+        setCommand(input);
+        return;
       }
     }
 
@@ -394,7 +419,7 @@ function TuiApp({
             color="cyan"
             height={topologyHeight}
             width={leftWidth - 2}
-            focused={activePanel === "left"}
+            focused={activePanel === "topology"}
           >
             <TopologyBar
               state={snapshot.state}
@@ -408,7 +433,7 @@ function TuiApp({
             color="cyan"
             height={workflowHeight}
             width={leftWidth - 2}
-            focused={activePanel === "left"}
+            focused={activePanel === "workflow"}
           >
             <WorkflowView
               state={snapshot.state}
@@ -431,7 +456,7 @@ function TuiApp({
             color="green"
             height={summaryHeight}
             width={leftWidth - 2}
-            focused={activePanel === "left"}
+            focused={activePanel === "summary"}
           >
             <SummaryView
               summary={snapshot.summary ?? ""}
@@ -443,7 +468,7 @@ function TuiApp({
         </Box>
 
         <Box flexDirection="column" width={rightWidth} height={innerHeight}>
-          <Panel title="LLM CONTEXT" color="blue" height={llmHeight} width={rightWidth - 2} focused={activePanel === "right"}>
+          <Panel title="LLM CONTEXT" color="blue" height={llmHeight} width={rightWidth - 2} focused={activePanel === "llm"}>
             <Text color="white" wrap="truncate">model: {model} · mode: {mode}</Text>
             <Text color="white" wrap="truncate">task: {task || "(no task)"}</Text>
             {/* {snapshot.llm ? (
@@ -453,7 +478,7 @@ function TuiApp({
             ) : null} */}
           </Panel>
 
-          <Panel title="TOKEN STATISTICS" color="blue" height={tokenHeight} width={rightWidth - 2} focused={activePanel === "right"}>
+          <Panel title="TOKEN STATISTICS" color="blue" height={tokenHeight} width={rightWidth - 2} focused={activePanel === "token"}>
             <TokenStats usage={usageTotals} limit={tokenLimit} errorCount={errorCount} />
           </Panel>
 
@@ -462,7 +487,7 @@ function TuiApp({
             color="blue"
             height={diffHeight}
             width={rightWidth - 2}
-            focused={activePanel === "right"}
+            focused={activePanel === "diff"}
           >
             <DiffViewer
               diffs={diffs}
@@ -480,7 +505,7 @@ function TuiApp({
             color="cyan"
             height={commandHeight}
             width={rightWidth - 2}
-            focused={activePanel === "right"}
+            focused={activePanel === "command"}
           >
             <Box flexDirection="row">
               <Text color="green">{"> AgentCommand: "}</Text>
