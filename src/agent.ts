@@ -62,6 +62,7 @@ export class ReallityAgent {
   private finalAnswer = "";
   private lastLlmContent = "";
   private toolChainSummary = "";
+  private lastToolOutput = "";
 
   constructor(options: ReallityAgentOptions) {
     this.workspaceRoot = options.workspaceRoot;
@@ -121,6 +122,7 @@ export class ReallityAgent {
       const answer =
         this.finalAnswer ||
         this.lastLlmContent ||
+        this.lastToolOutput ||
         this.toolChainSummary ||
         message;
       this.emit({
@@ -149,7 +151,11 @@ export class ReallityAgent {
         success: false,
         state: this.fsm.state,
         message,
-        answer: this.finalAnswer || this.lastLlmContent || this.toolChainSummary,
+        answer:
+          this.finalAnswer ||
+          this.lastLlmContent ||
+          this.lastToolOutput ||
+          this.toolChainSummary,
         rounds: this.fsm.roundCount,
         tracePath: this.writeTrace(),
       };
@@ -221,6 +227,9 @@ export class ReallityAgent {
         call.function.name,
         result.success ? result.output : (result.error ?? "tool failed"),
       );
+      if (result.success && result.output.trim()) {
+        this.lastToolOutput = result.output.trim();
+      }
       this.toolChainSummary = `${call.function.name}${
         result.success ? "" : " (failed)"
       }`;

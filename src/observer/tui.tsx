@@ -796,7 +796,7 @@ function renderTopologyLines(
     text:
       state === "rollback"
         ? "[● ROLLBACK] ─▶ planner"
-        : "[  rollback] ─▶ [  planner]",
+        : "[rollback] ─▶ [planner]",
     color: state === "rollback" ? "green" : "gray",
   });
   return nodes;
