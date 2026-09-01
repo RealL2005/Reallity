@@ -52,6 +52,7 @@ interface ActivityItem {
   args?: string;
   outputPreview?: string;
   errorSignature?: string;
+  success?: boolean;
 }
 
 interface ColoredLine {
@@ -453,9 +454,6 @@ function TuiApp({
               state={snapshot.state}
               task={task}
               stateLog={stateLog}
-              summary={snapshot.summary}
-              summaryOffset={summaryOffset}
-              tick={tick}
               workflowOffset={workflowOffset}
               height={workflowHeight - 3}
               width={leftWidth - 6}
@@ -518,7 +516,7 @@ function TuiApp({
 
           <Panel
             title="INTERACTIVE COMMAND INPUT"
-            color="cyan"
+            color="yellow"
             height={commandHeight}
             width={rightWidth - 2}
             focused={activePanel === "command"}
@@ -601,35 +599,23 @@ function LlmContextView({
   return <StringScrollable lines={lines} height={height} offset={offset} width={width} />;
 }
 
-function WorkflowView({
+function buildWorkflowLines({
   state,
   task,
   stateLog,
-  summary,
-  summaryOffset,
-  tick,
-  workflowOffset,
-  height,
-  width,
+  expandedStates,
   expandedToolIds,
   expandedLlmIds,
-  expandedStates,
-  stateFocus,
+  width,
 }: {
   state: AgentState;
   task: string;
   stateLog: Record<AgentState, ActivityItem[]>;
-  summary?: string;
-  summaryOffset: number;
-  tick: number;
-  workflowOffset: number;
-  height: number;
-  width: number;
+  expandedStates: Set<AgentState>;
   expandedToolIds: Set<string>;
   expandedLlmIds: Set<string>;
-  expandedStates: Set<AgentState>;
-  stateFocus: AgentState;
-}) {
+  width: number;
+}): ColoredLine[] {
   const order: AgentState[] = [
     "init",
     "planner",
@@ -642,9 +628,6 @@ function WorkflowView({
   const visibleStates = order.filter(
     (item) => item === state || stateLog[item].length > 0,
   );
-  const failedVerify = stateLog.verify.some((entry) =>
-    entry.text.includes("✗ tests failed"),
-  );
   const logical: ColoredLine[] = [
     { text: `Task: ${task || "(no task)"}`, color: "white" },
   ];
@@ -653,7 +636,7 @@ function WorkflowView({
     const expandedState = expandedStates.has(item);
     logical.push({
       text: `${expandedState ? "▼" : "▷"} ${item}`,
-      color: item === stateFocus ? "green" : "cyan",
+      color: item === state ? "green" : "cyan",
     });
     const entries = stateLog[item];
     if (!expandedState) {
@@ -704,6 +687,42 @@ function WorkflowView({
     }
   }
 
+  return logical;
+}
+
+function WorkflowView({
+  state,
+  task,
+  stateLog,
+  workflowOffset,
+  height,
+  width,
+  expandedToolIds,
+  expandedLlmIds,
+  expandedStates,
+  stateFocus,
+}: {
+  state: AgentState;
+  task: string;
+  stateLog: Record<AgentState, ActivityItem[]>;
+  workflowOffset: number;
+  height: number;
+  width: number;
+  expandedToolIds: Set<string>;
+  expandedLlmIds: Set<string>;
+  expandedStates: Set<AgentState>;
+  stateFocus: AgentState;
+}) {
+  const logical = buildWorkflowLines({
+    state,
+    task,
+    stateLog,
+    expandedStates,
+    expandedToolIds,
+    expandedLlmIds,
+    width,
+  });
+
   return (
     <StringScrollable
       lines={logical}
@@ -726,7 +745,7 @@ function TopologyBar({
   width: number;
 }) {
   const failedVerify = stateLog.verify.some((entry) =>
-    entry.text.includes("✗ tests failed"),
+    entry.kind === "verification" && entry.success === false,
   );
   const lines = renderTopologyLines(state, failedVerify, tick);
   return (
@@ -773,7 +792,13 @@ function renderTopologyLines(
       color: "yellow",
     });
   }
-  nodes.push({ text: "rollback ─▶ planner", color: "gray" });
+  nodes.push({
+    text:
+      state === "rollback"
+        ? "[● ROLLBACK] ─▶ planner"
+        : "rollback ─▶ planner",
+    color: state === "rollback" ? "green" : "gray",
+  });
   return nodes;
 }
 
@@ -1065,6 +1090,7 @@ function summarizeActivity(event: AgentEvent): ActivityItem | null {
       return {
         kind: "verification",
         text: event.passed ? "✓ passed" : "✗ failed",
+        success: event.passed,
         color: event.passed ? "green" : "red",
       };
     case "checklist":
@@ -1276,40 +1302,17 @@ function countWorkflowLines(
   expandedStates: Set<AgentState>,
   width: number,
 ): number {
-  const logical: string[] = ["Task"];
-  const order: AgentState[] = [
-    "init",
-    "planner",
-    "executor",
-    "verify",
-    "commit",
-    "rollback",
-    "finish",
-  ];
-  for (const item of order) {
-    if (!stateLog[item].length && item !== state) continue;
-    logical.push(item);
-    if (!expandedStates.has(item)) {
-      if (stateLog[item].length) logical.push(`    └─ ${stateLog[item].length} events`);
-      continue;
-    }
-    for (const entry of stateLog[item]) {
-      let text = entry.text;
-      if (entry.kind === "tool_start" && entry.args) {
-        text = `${entry.text} (${entry.args.replace(/\s+/g, " ")})`;
-      } else if (entry.kind === "llm" && entry.fullText) {
-        text = entry.fullText.includes("\n") || entry.fullText.length > width
-          ? `LLM Output: "${entry.fullText.split("\n")[0]}" (按 Enter 查看完整文本)`
-          : `LLM Output: "${entry.fullText}"`;
-      }
-      logical.push(`    ${truncateText(text, width)}`);
-      if (entry.kind === "tool_result" && entry.outputPreview) {
-        logical.push(`      └─ ${truncateText(entry.outputPreview.split("\n")[0], width)}`);
-      }
-    }
-  }
+  const logical = buildWorkflowLines({
+    state,
+    task: "",
+    stateLog,
+    expandedStates,
+    expandedToolIds: new Set(),
+    expandedLlmIds: new Set(),
+    width,
+  });
   return logical.flatMap((line) =>
-    wrapAnsi(line, width, { hard: true }).split("\n"),
+    wrapAnsi(line.text, width, { hard: true }).split("\n"),
   ).length;
 }
 
