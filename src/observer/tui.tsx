@@ -1048,7 +1048,7 @@ function renderTopologyLines(
   const nodes: ColoredLine[] = [{ text: topology, color: "cyan" }];
   if (failedVerify) {
     nodes.push({
-      text: "verify --(fail)--▶ executor ⚡",
+      text: "verify -(fail)--▶ executor ⚡",
       color: "yellow",
     });
   }
