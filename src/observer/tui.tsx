@@ -282,6 +282,20 @@ function TuiApp({
     }
 
     if (command.length === 0) {
+      if (key.upArrow || key.downArrow) {
+        const delta = key.upArrow ? -1 : 1;
+        setWorkflowOffset((current) =>
+          Math.min(workflowMax, Math.max(0, current + delta)),
+        );
+        return;
+      }
+      if (key.pageUp || key.pageDown) {
+        const delta = key.pageUp ? -1 : 1;
+        setSummaryOffset((current) =>
+          Math.min(summaryMax, Math.max(0, current + delta)),
+        );
+        return;
+      }
       if (activePanel === "left") {
         const visible = getVisibleStates(snapshot.state, stateLog);
         if (input === "[") {
@@ -307,20 +321,6 @@ function TuiApp({
           });
           return;
         }
-        if (key.upArrow || key.downArrow) {
-          const delta = key.upArrow ? -1 : 1;
-          setWorkflowOffset((current) =>
-            Math.min(workflowMax, Math.max(0, current + delta)),
-          );
-          return;
-        }
-        if (key.pageUp || key.pageDown) {
-          const delta = key.pageUp ? -1 : 1;
-          setSummaryOffset((current) =>
-            Math.min(summaryMax, Math.max(0, current + delta)),
-          );
-          return;
-        }
         if (input === "x" && lastToolId) {
           setExpandedToolIds((current) => {
             const next = new Set(current);
@@ -335,8 +335,8 @@ function TuiApp({
           return;
         }
       } else {
-        if (key.upArrow || key.downArrow) {
-          const delta = key.upArrow ? -1 : 1;
+        if (input === "j" || input === "k") {
+          const delta = input === "k" ? -1 : 1;
           const max = diffMaxOffsets[diffFocus] ?? 0;
           setDiffOffsets((current) => {
             const next = [...current];
