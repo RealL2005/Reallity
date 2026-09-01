@@ -47,6 +47,16 @@ function TuiApp({
 }: TuiAppProps) {
   const { stdout } = useStdout();
   const contentWidth = Math.max(40, stdout.columns - 4);
+  const terminalHeight = Math.max(28, stdout.rows - 2);
+  const bannerHeight = 5;
+  const workflowHeight = Math.max(12, terminalHeight - bannerHeight - 3);
+  const llmHeight = 4;
+  const tokenHeight = 5;
+  const commandHeight = 3;
+  const diffHeight = Math.max(
+    8,
+    terminalHeight - llmHeight - tokenHeight - commandHeight - 4,
+  );
   const [showSplash, setShowSplash] = useState(true);
   const [snapshot, setSnapshot] = useState<TuiSnapshot>({
     state: "init",
@@ -228,10 +238,14 @@ function TuiApp({
   }
 
   return (
-    <Box flexDirection="row" paddingX={1}>
-      <Box flexDirection="column" width="50%">
+    <Box flexDirection="row" paddingX={1} height={terminalHeight}>
+      <Box flexDirection="column" width="50%" height={terminalHeight}>
         <Text>{renderBanner("Reallity", "Small")}</Text>
-        <Panel title="AUTOMATED WORKFLOWS" color="cyan">
+        <Panel
+          title="AUTOMATED WORKFLOWS"
+          color="cyan"
+          height={workflowHeight}
+        >
           <WorkflowView
             state={snapshot.state}
             task={task}
@@ -243,8 +257,8 @@ function TuiApp({
         </Panel>
       </Box>
 
-      <Box flexDirection="column" width="50%">
-        <Panel title="LLM CONTEXT" color="blue">
+      <Box flexDirection="column" width="50%" height={terminalHeight}>
+        <Panel title="LLM CONTEXT" color="blue" height={llmHeight}>
           <Text color="white">model: {model}</Text>
           <Text color="white">mode: {mode}</Text>
           <Text color="white">task: {task || "(no task)"}</Text>
@@ -255,21 +269,30 @@ function TuiApp({
           ) : null}
         </Panel>
 
-        <Panel title="TOKEN STATISTICS" color="blue">
+        <Panel title="TOKEN STATISTICS" color="blue" height={tokenHeight}>
           <TokenStats usage={usageTotals} limit={tokenLimit} />
         </Panel>
 
-        <Panel title="FILE MODIFICATION DIFF" color="blue">
+        <Panel
+          title="FILE MODIFICATION DIFF"
+          color="blue"
+          height={diffHeight}
+        >
           <DiffViewer
             diffs={diffs}
             expandedDiffs={expandedDiffs}
             focus={diffFocus}
             offsets={diffOffsets}
             width={contentWidth - 6}
+            height={diffHeight - 3}
           />
         </Panel>
 
-        <Panel title="INTERACTIVE COMMAND INPUT" color="cyan">
+        <Panel
+          title="INTERACTIVE COMMAND INPUT"
+          color="cyan"
+          height={commandHeight}
+        >
           <Box flexDirection="row">
             <Text color="green">{"> AgentCommand: "}</Text>
             <Text color="white">{command}</Text>
@@ -284,10 +307,12 @@ function TuiApp({
 function Panel({
   title,
   color,
+  height,
   children,
 }: {
   title: string;
   color: string;
+  height?: number;
   children: React.ReactNode;
 }) {
   return (
@@ -297,6 +322,8 @@ function Panel({
       flexDirection="column"
       paddingX={1}
       marginBottom={1}
+      height={height}
+      overflowY={height ? "hidden" : undefined}
     >
       <Text bold color={color}>
         {title}
@@ -474,16 +501,20 @@ function DiffViewer({
   focus,
   offsets,
   width,
+  height,
 }: {
   diffs: DiffView[];
   expandedDiffs: Set<number>;
   focus: number;
   offsets: number[];
   width: number;
+  height: number;
 }) {
   if (diffs.length === 0) {
     return <Text color="gray">No file modifications yet</Text>;
   }
+
+  const viewport = Math.max(3, height - 3);
 
   return (
     <Box flexDirection="column">
@@ -493,8 +524,11 @@ function DiffViewer({
           ...diff.oldText.split("\n").map((line) => ({ text: `- ${line}`, color: "red" })),
           ...diff.newText.split("\n").map((line) => ({ text: `+ ${line}`, color: "green" })),
         ];
-        const offset = Math.min(offsets[index] ?? 0, Math.max(0, lines.length - 6));
-        const visible = lines.slice(offset, offset + 6);
+        const offset = Math.min(
+          offsets[index] ?? 0,
+          Math.max(0, lines.length - viewport),
+        );
+        const visible = lines.slice(offset, offset + viewport);
         return (
           <Box flexDirection="column" key={`${diff.path}-${index}`}>
             <Text color={index === focus ? "cyan" : "gray"}>
@@ -509,7 +543,7 @@ function DiffViewer({
                   </Text>
                 ))}
                 <Text color="gray">
-                  {offset + 1}-{Math.min(lines.length, offset + 6)} / {lines.length}
+                  {offset + 1}-{Math.min(lines.length, offset + viewport)} / {lines.length}
                 </Text>
               </Box>
             ) : null}
