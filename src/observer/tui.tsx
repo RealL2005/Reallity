@@ -278,6 +278,7 @@ function TuiApp({
             title="AUTOMATED WORKFLOWS"
             color="cyan"
             height={workflowHeight}
+            width={leftWidth - 2}
           >
             <WorkflowView
               state={snapshot.state}
@@ -294,6 +295,7 @@ function TuiApp({
             title="FINAL SUMMARY"
             color="green"
             height={summaryHeight}
+            width={leftWidth - 2}
           >
             <SummaryView
               summary={snapshot.summary ?? ""}
@@ -304,18 +306,18 @@ function TuiApp({
         </Box>
 
         <Box flexDirection="column" width={rightWidth} height={innerHeight}>
-          <Panel title="LLM CONTEXT" color="blue" height={llmHeight}>
+          <Panel title="LLM CONTEXT" color="blue" height={llmHeight} width={rightWidth - 2}>
             <Text color="white">model: {model}</Text>
             <Text color="white">mode: {mode}</Text>
             <Text color="white">task: {task || "(no task)"}</Text>
             {snapshot.llm ? (
               <Text color="gray" wrap="truncate">
-                {truncateText(snapshot.llm, contentWidth - 6)}
+                {truncateText(snapshot.llm, rightWidth - 6)}
               </Text>
             ) : null}
           </Panel>
 
-          <Panel title="TOKEN STATISTICS" color="blue" height={tokenHeight}>
+          <Panel title="TOKEN STATISTICS" color="blue" height={tokenHeight} width={rightWidth - 2}>
             <TokenStats usage={usageTotals} limit={tokenLimit} />
           </Panel>
 
@@ -323,13 +325,14 @@ function TuiApp({
             title="FILE MODIFICATION DIFF"
             color="blue"
             height={diffHeight}
+            width={rightWidth - 2}
           >
             <DiffViewer
               diffs={diffs}
               expandedDiffs={expandedDiffs}
               focus={diffFocus}
               offsets={diffOffsets}
-              width={contentWidth - 6}
+              width={rightWidth - 6}
               height={diffHeight - 3}
             />
           </Panel>
@@ -338,6 +341,7 @@ function TuiApp({
             title="INTERACTIVE COMMAND INPUT"
             color="cyan"
             height={commandHeight}
+            width={rightWidth - 2}
           >
             <Box flexDirection="row">
               <Text color="green">{"> AgentCommand: "}</Text>
@@ -355,11 +359,13 @@ function Panel({
   title,
   color,
   height,
+  width,
   children,
 }: {
   title: string;
   color: string;
   height?: number;
+  width?: number;
   children: React.ReactNode;
 }) {
   return (
@@ -370,6 +376,7 @@ function Panel({
       paddingX={1}
       marginBottom={1}
       height={height}
+      width={width}
       overflowY={height ? "hidden" : undefined}
     >
       <Text bold color={color}>
