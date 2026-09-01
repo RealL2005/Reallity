@@ -36,6 +36,8 @@ interface TuiSnapshot {
 interface ActivityItem {
   text: string;
   color?: string;
+  id?: string;
+  fullText?: string;
 }
 
 function TuiApp({
@@ -96,6 +98,8 @@ function TuiApp({
   const currentStateRef = useRef<AgentState>("init");
   const [summaryOffset, setSummaryOffset] = useState(0);
   const [workflowOffset, setWorkflowOffset] = useState(0);
+  const [expandedToolIds, setExpandedToolIds] = useState<Set<string>>(new Set());
+  const [lastToolId, setLastToolId] = useState<string | null>(null);
   const [tick, setTick] = useState(0);
 
   useEffect(() => {
@@ -159,6 +163,9 @@ function TuiApp({
             return current.map((diff, i) => (i === index ? event.diff! : diff));
           });
         }
+        if (event.type === "tool_result") {
+          setLastToolId(`${event.tool}-${event.timestamp}`);
+        }
 
         const item = summarizeActivity(event);
         if (item && event.type !== "state") {
@@ -209,6 +216,19 @@ function TuiApp({
           else next.add(diffFocus);
           return next;
         });
+        return;
+      }
+      if (input === "x" && lastToolId) {
+        setExpandedToolIds((current) => {
+          const next = new Set(current);
+          if (next.has(lastToolId)) next.delete(lastToolId);
+          else next.add(lastToolId);
+          return next;
+        });
+        return;
+      }
+      if (input === "c") {
+        setExpandedToolIds(new Set());
         return;
       }
       if (key.upArrow || key.downArrow) {
@@ -290,6 +310,7 @@ function TuiApp({
               workflowOffset={workflowOffset}
               height={workflowHeight - 3}
               width={leftWidth - 6}
+              expandedToolIds={expandedToolIds}
             />
           </Panel>
           <Panel
@@ -399,6 +420,7 @@ function WorkflowView({
   workflowOffset,
   height,
   width,
+  expandedToolIds,
 }: {
   state: AgentState;
   task: string;
@@ -409,6 +431,7 @@ function WorkflowView({
   workflowOffset: number;
   height: number;
   width: number;
+  expandedToolIds: Set<string>;
 }) {
   const order: AgentState[] = [
     "init",
@@ -440,10 +463,11 @@ function WorkflowView({
       </Text>,
     );
     for (const entry of stateLog[item]) {
+      const isExpanded = entry.id && expandedToolIds.has(entry.id);
       lines.push(
         <Text key={`${item}-${lines.length}`} color={entry.color ?? "gray"} wrap="wrap">
           {"    "}
-          {entry.text}
+          {entry.fullText && isExpanded ? entry.fullText : entry.text}
         </Text>,
       );
     }
@@ -668,36 +692,20 @@ function summarizeActivity(event: AgentEvent): ActivityItem | null {
       return { text: `▶ ${event.tool}`, color: "yellow" };
     case "tool_result":
       return {
-        text: `${event.tool} ${event.success ? "ok" : "failed"}${
-          event.output || event.error
-            ? `: ${summarizeToolResult(event)}`
-            : ""
+        id: `${event.tool}-${event.timestamp}`,
+        text: `${event.tool} ${event.success ? "ok" : "failed"}: ……`,
+        fullText: `${event.tool} ${event.success ? "ok" : "failed"}:\n${
+          event.output || event.error || ""
         }`,
         color: event.success ? "green" : "red",
       };
     case "verification":
-      return {
-        text: event.passed ? "✓ tests passed" : "✗ tests failed",
-        color: event.passed ? "green" : "red",
-      };
     case "diagnostic":
-      return { text: event.diagnostic.message, color: "red" };
     case "checkpoint":
-      return { text: `checkpoint ${event.head.slice(0, 8)}`, color: "gray" };
     case "checklist":
-      return {
-        text: `checklist: ${event.items.map((item) => item.id).join(" → ")}`,
-        color: "cyan",
-      };
     case "rollback":
-      return {
-        text: `rollback: ${event.message}`,
-        color: event.success ? "yellow" : "red",
-      };
     case "error":
-      return { text: `error: ${event.message}`, color: "red" };
     case "finish":
-      return { text: "finished", color: "green" };
     case "state":
       return null;
   }
