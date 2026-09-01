@@ -1,14 +1,18 @@
 import { test, expect } from "bun:test";
+import React from "react";
+import { render } from "ink";
 import {
   cleanLlmText,
   formatMarkdownTable,
   parseCommand,
   parseMarkdownTableData,
   buildConversation,
+  computeHeights,
   stateColor,
   tailLines,
+  TuiApp,
 } from "../../src/observer/tui.tsx";
-import type { AgentEvent } from "../../src/observer/events.ts";
+import { EventBus, type AgentEvent } from "../../src/observer/events.ts";
 
 test("stateColor gives each FSM state a distinct color", () => {
   const states = [
@@ -128,4 +132,66 @@ test("buildConversation pairs task start and end events", () => {
     { index: 0, task: "first", answer: "a1", success: true },
     { index: 1, task: "second", answer: "a2", success: false },
   ]);
+});
+
+test("computeHeights keeps the input bar visible across terminal sizes", () => {
+  for (const rows of [16, 24, 30, 40, 60]) {
+    const h = computeHeights(rows);
+    expect(h.inputHeight).toBe(1);
+    expect(h.hintHeight).toBe(1);
+    expect(h.bannerHeight).toBeGreaterThanOrEqual(1);
+    const leftTotal =
+      h.topologyHeight +
+      h.conversationHeight +
+      h.summaryHeight +
+      h.workflowHeight;
+    const rightTotal = h.llmHeight + h.tokenHeight + h.diffHeight;
+    expect(leftTotal).toBeLessThanOrEqual(h.innerHeight);
+    expect(rightTotal).toBeLessThanOrEqual(h.innerHeight);
+    expect(h.workflowHeight).toBeGreaterThanOrEqual(3);
+    expect(h.diffHeight).toBeGreaterThanOrEqual(3);
+  }
+});
+
+class FakeStdout {
+  output = "";
+  columns = 80;
+  rows = 24;
+  write(chunk: string): boolean {
+    this.output += chunk;
+    return true;
+  }
+  on(): this {
+    return this;
+  }
+  once(): this {
+    return this;
+  }
+  off(): this {
+    return this;
+  }
+  emit(): boolean {
+    return false;
+  }
+}
+
+test("TUI renders the conversation input bar at 80x24", async () => {
+  const bus = new EventBus();
+  const stdout = new FakeStdout();
+  const instance = render(
+    React.createElement(TuiApp, {
+      bus,
+      task: "",
+      workspaceRoot: "/tmp",
+      splashMs: 0,
+    }),
+    { stdout: stdout as unknown as NodeJS.WriteStream },
+  );
+  await new Promise((resolve) => setTimeout(resolve, 50));
+
+  expect(stdout.output).toContain("Reallity");
+  expect(stdout.output).toContain("> ");
+  expect(stdout.output).not.toContain("INTERACTIVE COMMAND INPUT");
+
+  instance.unmount();
 });

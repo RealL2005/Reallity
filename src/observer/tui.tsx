@@ -84,6 +84,63 @@ const PANEL_ORDER: PanelId[] = [
   "diff",
 ];
 
+export interface TuiHeights {
+  bannerHeight: number;
+  inputHeight: number;
+  hintHeight: number;
+  innerHeight: number;
+  topologyHeight: number;
+  conversationHeight: number;
+  summaryHeight: number;
+  workflowHeight: number;
+  llmHeight: number;
+  tokenHeight: number;
+  diffHeight: number;
+}
+
+export function computeHeights(rows: number): TuiHeights {
+  const terminalHeight = Math.max(16, rows - 2);
+  const bannerHeight = terminalHeight >= 30 ? 5 : 1;
+  const inputHeight = 1;
+  const hintHeight = 1;
+  const innerHeight = Math.max(
+    8,
+    terminalHeight - bannerHeight - inputHeight - hintHeight,
+  );
+  const topologyHeight = Math.max(
+    3,
+    Math.min(4, Math.floor(innerHeight / 6)),
+  );
+  const summaryHeight = Math.max(
+    3,
+    Math.min(6, Math.floor(innerHeight / 5)),
+  );
+  const conversationHeight = Math.max(
+    3,
+    Math.min(7, Math.floor(innerHeight / 4)),
+  );
+  const workflowHeight = Math.max(
+    3,
+    innerHeight - topologyHeight - conversationHeight - summaryHeight,
+  );
+  const llmHeight = Math.max(3, Math.min(4, Math.floor(innerHeight / 6)));
+  const tokenHeight = Math.max(4, Math.min(6, Math.floor(innerHeight / 5)));
+  const diffHeight = Math.max(3, innerHeight - llmHeight - tokenHeight);
+  return {
+    bannerHeight,
+    inputHeight,
+    hintHeight,
+    innerHeight,
+    topologyHeight,
+    conversationHeight,
+    summaryHeight,
+    workflowHeight,
+    llmHeight,
+    tokenHeight,
+    diffHeight,
+  };
+}
+
 export function TuiApp({
   bus,
   model = "gpt-4.1-mini",
@@ -100,22 +157,20 @@ export function TuiApp({
   const contentWidth = Math.max(40, stdout.columns - 2);
   const leftWidth = Math.floor(contentWidth / 2);
   const rightWidth = contentWidth - leftWidth;
-  const terminalHeight = Math.max(28, stdout.rows - 2);
-  const bannerHeight = 5;
-  const summaryHeight = 8;
-  const topologyHeight = 5;
-  const innerHeight = Math.max(20, terminalHeight - bannerHeight - 1);
-  const workflowHeight = Math.max(
-    8,
-    innerHeight - summaryHeight - topologyHeight,
-  );
-  const llmHeight = 5;
-  const tokenHeight = 7;
-  const commandHeight = 3;
-  const diffHeight = Math.max(
-    8,
-    innerHeight - llmHeight - tokenHeight - commandHeight,
-  );
+  const terminalHeight = Math.max(16, stdout.rows - 2);
+  const {
+    bannerHeight,
+    inputHeight,
+    hintHeight,
+    innerHeight,
+    topologyHeight,
+    conversationHeight,
+    summaryHeight,
+    workflowHeight,
+    llmHeight,
+    tokenHeight,
+    diffHeight,
+  } = computeHeights(stdout.rows);
   const [showSplash, setShowSplash] = useState(true);
   const [snapshot, setSnapshot] = useState<TuiSnapshot>({
     state: "init",
@@ -509,6 +564,11 @@ export function TuiApp({
     }
   });
 
+  const conversation = useMemo(
+    () => buildConversation(bus.history),
+    [bus, snapshot.events],
+  );
+
   if (showSplash) {
     return (
       <Box flexDirection="column" paddingX={1}>
@@ -520,7 +580,13 @@ export function TuiApp({
 
   return (
     <Box flexDirection="column" width={contentWidth} height={terminalHeight}>
-      <GradientBanner text="Reallity" font="Small" />
+      {bannerHeight >= 5 ? (
+        <GradientBanner text="Reallity" font="Small" />
+      ) : (
+        <Text bold color="cyan">
+          Reallity TUI
+        </Text>
+      )}
       <Box flexDirection="row" height={innerHeight} width={contentWidth}>
         <Box flexDirection="column" width={leftWidth} height={innerHeight}>
           <Panel
@@ -535,6 +601,19 @@ export function TuiApp({
               stateLog={stateLog}
               tick={tick}
               width={leftWidth - 6}
+            />
+          </Panel>
+          <Panel
+            title="CONVERSATION"
+            color="magenta"
+            height={conversationHeight}
+            width={leftWidth - 2}
+            focused={activePanel === "conversation"}
+          >
+            <ConversationView
+              entries={conversation}
+              width={leftWidth - 6}
+              height={conversationHeight - 3}
             />
           </Panel>
           <Panel
@@ -577,6 +656,10 @@ export function TuiApp({
           <Panel title="LLM CONTEXT" color="blue" height={llmHeight} width={rightWidth - 2} focused={activePanel === "llm"}>
             <Text color="white" wrap="truncate">model: {model} · mode: {mode}</Text>
             <Text color="white" wrap="truncate">task: {task || "(no task)"}</Text>
+            <Text color="white" wrap="truncate">
+              workspace: {workspaceRoot || "(default)"}
+            </Text>
+            {resumed ? <Text color="yellow">resumed session</Text> : null}
             {/* <LlmContextView
               content={snapshot.llm}
               expanded={expandedLlmIds.has(lastLlmId ?? "")}
@@ -610,8 +693,20 @@ export function TuiApp({
 
         </Box>
       </Box>
+      <Box flexDirection="row" width={contentWidth} height={inputHeight}>
+        <Text color={snapshot.running ? "yellow" : "green"}>
+          {snapshot.running ? "⏳ " : "> "}
+        </Text>
+        <Text color="white" wrap="truncate">{command}</Text>
+        <Text color="gray">{snapshot.running ? "" : "█"}</Text>
+        <Text color="gray" wrap="truncate">
+          {snapshot.running
+            ? "agent 运行中…"
+            : "[Enter] 发送 · [Tab] 面板 · /help"}
+        </Text>
+      </Box>
       <Text color="gray">
-        [Tab] Switch Panel · [↑/↓] Workflow · [PgUp/PgDn] Summary · [Enter] Expand
+        [Tab] Switch Panel · [↑/↓] Workflow · [PgUp/PgDn] Summary · [Enter] Send
       </Text>
     </Box>
   );
@@ -858,6 +953,42 @@ function WorkflowView({
       lines={logical}
       height={height}
       offset={workflowOffset}
+      width={width}
+    />
+  );
+}
+
+function ConversationView({
+  entries,
+  width,
+  height,
+}: {
+  entries: ConversationEntry[];
+  width: number;
+  height: number;
+}) {
+  if (entries.length === 0) {
+    return (
+      <Text color="gray">No conversation yet — type a message below.</Text>
+    );
+  }
+  const lines: ColoredLine[] = entries.flatMap((entry) => [
+    {
+      text: `You: ${truncateText(entry.task, width)}`,
+      color: "cyan",
+      wrap: false,
+    },
+    {
+      text: `Agent: ${truncateText(entry.answer, width)}`,
+      color: entry.success ? "green" : "red",
+      wrap: false,
+    },
+  ]);
+  return (
+    <StringScrollable
+      lines={lines}
+      height={height}
+      offset={0}
       width={width}
     />
   );
