@@ -513,12 +513,21 @@ function WorkflowView({
     for (const entry of stateLog[item]) {
       const isExpanded = entry.id && expandedToolIds.has(entry.id);
       const isLlmExpanded = entry.id && expandedLlmIds.has(entry.id);
-      const entryText =
-        entry.kind === "tool_start" && entry.args
-          ? `${entry.text} (${entry.args})`
-          : entry.kind === "llm" && isLlmExpanded && entry.fullText
-            ? entry.fullText
-            : entry.text;
+      let entryText = entry.text;
+      if (entry.kind === "tool_start" && entry.args) {
+        entryText = `${entry.text} (${entry.args})`;
+      } else if (entry.kind === "llm") {
+        const content = entry.fullText ?? "";
+        const needsExpand = content.includes("\n") || content.length > width;
+        entryText = isLlmExpanded
+          ? content
+          : needsExpand
+            ? `LLM Output: "${truncateText(
+                content.split("\n")[0],
+                width - 18,
+              )}" (按 Enter 查看完整文本)`
+            : `LLM Output: "${content}"`;
+      }
       lines.push(
         <Text
           key={`${item}-${lines.length}`}
@@ -526,9 +535,7 @@ function WorkflowView({
           wrap="truncate"
         >
           {"    "}
-          {entry.kind === "llm" && isLlmExpanded
-            ? entryText
-            : truncateText(entryText, width)}
+          {truncateText(entryText, width)}
         </Text>,
       );
       if (entry.kind === "tool_result" && !isExpanded && entry.outputPreview) {
@@ -777,8 +784,8 @@ function summarizeActivity(event: AgentEvent): ActivityItem | null {
       return {
         kind: "llm",
         id: `llm-${event.timestamp}`,
-        text: `LLM Output: "${truncateText(cleanLlmText(event.content), 60)}" (按 Enter 查看完整文本)`,
         fullText: cleanLlmText(event.content),
+        text: "LLM Output",
         color: "white",
       };
     case "tool_start":
