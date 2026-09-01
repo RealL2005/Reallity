@@ -13,6 +13,7 @@ interface TuiAppProps {
   task?: string;
   tokenLimit?: number;
   workspaceRoot?: string;
+  onTask?: (task: string) => void;
 }
 
 interface DiffView {
@@ -44,6 +45,7 @@ function TuiApp({
   task = "",
   tokenLimit = 200_000,
   workspaceRoot = process.cwd(),
+  onTask,
 }: TuiAppProps) {
   const { stdout } = useStdout();
   const contentWidth = Math.max(40, stdout.columns - 4);
@@ -91,6 +93,7 @@ function TuiApp({
   });
   const currentStateRef = useRef<AgentState>("init");
   const [summaryOffset, setSummaryOffset] = useState(0);
+  const [workflowOffset, setWorkflowOffset] = useState(0);
   const [tick, setTick] = useState(0);
 
   useEffect(() => {
@@ -170,6 +173,14 @@ function TuiApp({
   );
 
   useInput((input, key) => {
+    if (input === "w") {
+      setWorkflowOffset((current) => Math.max(0, current - 1));
+      return;
+    }
+    if (input === "s") {
+      setWorkflowOffset((current) => current + 1);
+      return;
+    }
     if (input === "{") {
       setSummaryOffset((current) => Math.max(0, current - 1));
       return;
@@ -208,15 +219,20 @@ function TuiApp({
     }
     if (key.return) {
       if (command.trim()) {
-        void runCommand(command, workspaceRoot, (item) =>
-          setStateLog((current) => {
-            const state = currentStateRef.current;
-            return {
-              ...current,
-              [state]: [...current[state], item].slice(-30),
-            };
-          }),
-        );
+        const taskCommand = parseTaskCommand(command);
+        if (taskCommand) {
+          onTask?.(taskCommand);
+        } else {
+          void runCommand(command, workspaceRoot, (item) =>
+            setStateLog((current) => {
+              const state = currentStateRef.current;
+              return {
+                ...current,
+                [state]: [...current[state], item].slice(-30),
+              };
+            }),
+          );
+        }
       }
       setCommand("");
       return;
@@ -256,6 +272,8 @@ function TuiApp({
               summary={snapshot.summary}
               summaryOffset={summaryOffset}
               tick={tick}
+              workflowOffset={workflowOffset}
+              height={workflowHeight - 2}
             />
           </Panel>
           <Panel
@@ -355,6 +373,8 @@ function WorkflowView({
   summary,
   summaryOffset,
   tick,
+  workflowOffset,
+  height,
 }: {
   state: AgentState;
   task: string;
@@ -362,6 +382,8 @@ function WorkflowView({
   summary?: string;
   summaryOffset: number;
   tick: number;
+  workflowOffset: number;
+  height: number;
 }) {
   const order: AgentState[] = [
     "init",
@@ -378,42 +400,38 @@ function WorkflowView({
   const failedVerify = stateLog.verify.some((entry) =>
     entry.text.includes("✗ tests failed"),
   );
+  const lines: React.ReactNode[] = [
+    <Text key="task" color="white" wrap="truncate">
+      Task: {task || "(no task)"}
+    </Text>,
+    ...renderTopologyLines(state, failedVerify, tick),
+  ];
 
-  return (
-    <Box flexDirection="column">
-      <Text color="white">Task: {task || "(no task)"}</Text>
-      <TopologyView
-        state={state}
-        failedVerify={failedVerify}
-        tick={tick}
-      />
-      {visibleStates.map((item) => (
-        <Box flexDirection="column" key={item}>
-          <Text color={item === state ? "green" : "cyan"}>
-            {item === state ? "> " : "  "}
-            {item}
-          </Text>
-          {stateLog[item].slice(-10).map((entry, index) => (
-            <Text key={index} color={entry.color ?? "gray"}>
-              {"    "}
-              {entry.text}
-            </Text>
-          ))}
-        </Box>
-      ))}
-    </Box>
-  );
+  for (const item of visibleStates) {
+    lines.push(
+      <Text key={`state-${item}`} color={item === state ? "green" : "cyan"}>
+        {item === state ? "> " : "  "}
+        {item}
+      </Text>,
+    );
+    for (const entry of stateLog[item].slice(-10)) {
+      lines.push(
+        <Text key={`${item}-${lines.length}`} color={entry.color ?? "gray"} wrap="truncate">
+          {"    "}
+          {entry.text}
+        </Text>,
+      );
+    }
+  }
+
+  return <ScrollableContent lines={lines} height={height} offset={workflowOffset} />;
 }
 
-function TopologyView({
-  state,
-  failedVerify,
-  tick,
-}: {
-  state: AgentState;
-  failedVerify: boolean;
-  tick: number;
-}) {
+function renderTopologyLines(
+  state: AgentState,
+  failedVerify: boolean,
+  tick: number,
+): React.ReactNode[] {
   const order: AgentState[] = [
     "init",
     "planner",
@@ -424,32 +442,41 @@ function TopologyView({
   ];
   const stateIndex = order.indexOf(state);
   const blink = tick % 2 === 0;
-
-  return (
-    <Box flexDirection="column" marginBottom={1}>
-      <Text color="gray">
-        {order.map((item, index) => {
-          const reached = stateIndex >= index;
-          const active = item === state;
-          const skipped = !reached;
-          return (
-            <Text key={item} color={active ? "green" : skipped ? "gray" : "cyan"} inverse={active && blink}>
-              {active ? "[● " : "["}
-              {item}
-              {active ? "]" : "]"}
-              {index < order.length - 1 ? " ─▶ " : ""}
-            </Text>
-          );
-        })}
-      </Text>
-      {failedVerify ? (
-        <Text color="yellow" inverse={blink}>
-          verify --(fail)--▶ executor
-        </Text>
-      ) : null}
-      <Text color="gray">rollback ─▶ planner</Text>
-    </Box>
+  const nodes: React.ReactNode[] = [];
+  nodes.push(
+    <Text key="topology" color="gray">
+      {order.map((item, index) => {
+        const reached = stateIndex >= index;
+        const active = item === state;
+        const skipped = !reached;
+        return (
+          <Text
+            key={item}
+            color={active ? "green" : skipped ? "gray" : "cyan"}
+            inverse={active && blink}
+          >
+            {active ? "[● " : "["}
+            {item}
+            {active ? "]" : "]"}
+            {index < order.length - 1 ? " ─▶ " : ""}
+          </Text>
+        );
+      })}
+    </Text>,
   );
+  if (failedVerify) {
+    nodes.push(
+      <Text key="fail" color="yellow" inverse={blink}>
+        verify --(fail)--▶ executor
+      </Text>,
+    );
+  }
+  nodes.push(
+    <Text key="rollback" color="gray">
+      rollback ─▶ planner
+    </Text>,
+  );
+  return nodes;
 }
 
 function SummaryView({
@@ -461,28 +488,53 @@ function SummaryView({
   offset: number;
   height: number;
 }) {
-  const lines = summary.trim()
+  const rawLines = summary.trim()
     ? summary.split("\n")
     : ["Waiting for final summary..."];
-  const clamped = Math.min(offset, Math.max(0, lines.length - height));
+  const lines = rawLines.map((line, index) => (
+    <Text key={index} wrap="truncate">
+      {line}
+    </Text>
+  ));
+  return <ScrollableContent lines={lines} height={height} offset={offset} />;
+}
+
+function ScrollableContent({
+  lines,
+  height,
+  offset,
+}: {
+  lines: React.ReactNode[];
+  height: number;
+  offset: number;
+}) {
+  const maxOffset = Math.max(0, lines.length - height);
+  const clamped = Math.min(offset, maxOffset);
   const visible = lines.slice(clamped, clamped + height);
-  while (visible.length < height) visible.push("");
+  while (visible.length < height) {
+    visible.push(<Text key={`pad-${visible.length}`}> </Text>);
+  }
+  const thumbHeight = Math.max(
+    1,
+    Math.floor((height / Math.max(1, lines.length)) * height),
+  );
+  const thumbTop =
+    maxOffset === 0
+      ? 0
+      : Math.floor((clamped / maxOffset) * (height - thumbHeight));
 
   return (
-    <Box flexDirection="column" borderStyle="round" borderColor="green" paddingX={1} marginTop={1}>
-      <Text bold color="green">
-        FINAL SUMMARY
-      </Text>
-      <Box flexDirection="column" height={height} overflow="hidden">
-        {visible.map((line, index) => (
-          <Text key={index} wrap="truncate">
-            {line}
+    <Box flexDirection="row">
+      <Box flexDirection="column" flexGrow={1}>
+        {visible}
+      </Box>
+      <Box flexDirection="column" width={1}>
+        {Array.from({ length: height }, (_, index) => (
+          <Text key={index} color="gray">
+            {index >= thumbTop && index < thumbTop + thumbHeight ? "█" : "│"}
           </Text>
         ))}
       </Box>
-      <Text color="gray">
-        {clamped + 1}-{Math.min(lines.length, clamped + height)} / {lines.length} · {"{ }"} scroll
-      </Text>
     </Box>
   );
 }
@@ -615,6 +667,17 @@ function summarizeToolResult(
   return truncateText(raw.replace(/\s+/g, " ").trim(), 120);
 }
 
+function parseTaskCommand(command: string): string | null {
+  const trimmed = command.trim();
+  if (trimmed.startsWith("/task ")) {
+    return trimmed.slice("/task ".length).trim();
+  }
+  if (trimmed.startsWith("task:")) {
+    return trimmed.slice("task:".length).trim();
+  }
+  return null;
+}
+
 async function runCommand(
   command: string,
   workspaceRoot: string,
@@ -646,6 +709,7 @@ export function startTUI(
     task?: string;
     tokenLimit?: number;
     workspaceRoot?: string;
+    onTask?: (task: string) => void;
   } = {},
 ): () => void {
   const instance = render(<TuiApp bus={bus} {...options} />);

@@ -139,10 +139,22 @@ export async function runCli(argv: string[] = process.argv.slice(2)): Promise<nu
       task: options.task,
       tokenLimit: Number(process.env.REALLITY_TOKEN_LIMIT ?? 200_000),
       workspaceRoot: options.workspace,
+      onTask: (task) => {
+        const nextAgent = new ReallityAgent({
+          workspaceRoot: options.workspace,
+          client,
+          eventBus,
+        });
+        void nextAgent.run(task);
+      },
     });
-    const result = await agent.run(options.task);
+    void agent.run(options.task);
+    await new Promise<void>((resolve) => {
+      process.once("SIGINT", () => resolve());
+      process.once("SIGTERM", () => resolve());
+    });
     stopTUI();
-    return result.success ? 0 : 1;
+    return 0;
   }
 
   const result = await agent.run(options.task);
