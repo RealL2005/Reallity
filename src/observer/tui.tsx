@@ -48,7 +48,9 @@ function TuiApp({
   onTask,
 }: TuiAppProps) {
   const { stdout } = useStdout();
-  const contentWidth = Math.max(40, stdout.columns - 4);
+  const contentWidth = Math.max(40, stdout.columns - 2);
+  const leftWidth = Math.floor(contentWidth / 2);
+  const rightWidth = contentWidth - leftWidth;
   const terminalHeight = Math.max(28, stdout.rows - 2);
   const bannerHeight = 5;
   const summaryHeight = 8;
@@ -268,10 +270,10 @@ function TuiApp({
   }
 
   return (
-    <Box flexDirection="column" paddingX={1} height={terminalHeight}>
+    <Box flexDirection="column" width={contentWidth} height={terminalHeight}>
       <Text>{renderBanner("Reallity", "Small")}</Text>
-      <Box flexDirection="row" height={innerHeight}>
-        <Box flexDirection="column" width="50%" height={innerHeight}>
+      <Box flexDirection="row" height={innerHeight} width={contentWidth}>
+        <Box flexDirection="column" width={leftWidth} height={innerHeight}>
           <Panel
             title="AUTOMATED WORKFLOWS"
             color="cyan"
@@ -301,7 +303,7 @@ function TuiApp({
           </Panel>
         </Box>
 
-        <Box flexDirection="column" width="50%" height={innerHeight}>
+        <Box flexDirection="column" width={rightWidth} height={innerHeight}>
           <Panel title="LLM CONTEXT" color="blue" height={llmHeight}>
             <Text color="white">model: {model}</Text>
             <Text color="white">mode: {mode}</Text>
