@@ -161,7 +161,7 @@ function TuiApp({
         ? stateLog[item].length
         : 1;
     }
-    return Math.max(0, logicalCount - (workflowHeight - 3));
+    return Math.max(0, logicalCount - Math.max(1, workflowHeight - 4));
   }, [snapshot.state, stateLog, expandedStates, workflowHeight]);
 
   const summaryMax = useMemo(() => {
@@ -171,7 +171,7 @@ function TuiApp({
     const physicalCount = raw.flatMap((line) =>
       wrapAnsi(line, leftWidth - 6, { hard: true }).split("\n"),
     ).length;
-    return Math.max(0, physicalCount - (summaryHeight - 3));
+    return Math.max(0, physicalCount - Math.max(1, summaryHeight - 4));
   }, [snapshot.summary, leftWidth, summaryHeight]);
 
   useEffect(() => {
