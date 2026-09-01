@@ -659,13 +659,6 @@ export function TuiApp({
               workspace: {workspaceRoot || "(default)"}
             </Text>
             {resumed ? <Text color="yellow">resumed session</Text> : null}
-            {/* <LlmContextView
-              content={snapshot.llm}
-              expanded={expandedLlmIds.has(lastLlmId ?? "")}
-              width={rightWidth - 6}
-              height={llmHeight - 3}
-              offset={llmOffset}
-            /> */}
           </Panel>
 
           <Panel title="TOKEN STATISTICS" color="blue" height={tokenHeight} width={rightWidth - 2} focused={activePanel === "token"}>
@@ -1172,10 +1165,7 @@ function TokenStats({
         {usage.totalTokens}
       </Text>
       <Text color="white">
-        session {usage.totalTokens} · this task {current.totalTokens}
-      </Text>
-      <Text color="white">
-        cache hit {cacheHitRate} · err signatures {errorCount}/3
+        session {usage.totalTokens} · this task {current.totalTokens} · cache hit {cacheHitRate} · err signatures {errorCount}/3
       </Text>
       <Text color="yellow">est cost ${cost.toFixed(4)}</Text>
       <Text color="gray">remaining {remaining} / {limit}</Text>

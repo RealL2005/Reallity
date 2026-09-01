@@ -259,6 +259,7 @@ test("TUI renders the conversation input bar at 80x24", async () => {
     {
       stdout: stdout as unknown as NodeJS.WriteStream,
       stdin: new FakeStdin() as unknown as NodeJS.ReadStream,
+      debug: true,
     },
   );
   await new Promise((resolve) => setTimeout(resolve, 50));
