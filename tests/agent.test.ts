@@ -6,6 +6,7 @@ import { tmpdir } from "node:os";
 import path from "node:path";
 import { ReallityAgent, looksLikeReadOnlyTask } from "../src/agent.ts";
 import { EventBus } from "../src/observer/events.ts";
+import { ContextManager } from "../src/core/context.ts";
 import type { ChatMessage, LLMResponse } from "../src/llm/types.ts";
 import type { VerificationResult } from "../src/verify/runner.ts";
 import { parseDiagnostic } from "../src/core/diagnostics.ts";
@@ -53,6 +54,31 @@ class ScriptedClient implements ClientLike {
   }
 }
 
+class RecordingClient implements ClientLike {
+  readonly seen: ChatMessage[][] = [];
+  private calls = 0;
+
+  constructor(private readonly scripts: ScriptedResponse[]) {}
+
+  async streamCompletion(
+    messages: ChatMessage[],
+    _options?: Record<string, unknown>,
+  ): Promise<LLMResponse> {
+    this.seen.push(messages);
+    const scripted = this.scripts[this.calls];
+    this.calls += 1;
+    return scripted
+      ? { ...scripted, reasoningContent: scripted.reasoningContent ?? "" }
+      : {
+          content: "done",
+          reasoningContent: "",
+          toolCalls: [],
+          finishReason: "stop",
+          usage: usage(),
+        };
+  }
+}
+
 function usage() {
   return {
     promptTokens: 0,
@@ -75,7 +101,8 @@ beforeEach(async () => {
     cwd: root,
   });
   await writeFile(path.join(root, "file.txt"), "hello\n");
-  await execFileAsync("git", ["add", "file.txt"], { cwd: root });
+  await writeFile(path.join(root, ".gitignore"), "trace.html\n");
+  await execFileAsync("git", ["add", "."], { cwd: root });
   await execFileAsync("git", ["commit", "-m", "initial"], { cwd: root });
 });
 
@@ -290,4 +317,48 @@ test("looksLikeReadOnlyTask classifies inspection requests as read-only", () => 
   expect(looksLikeReadOnlyTask("解释 src/agent.ts 的流程")).toBe(true);
   expect(looksLikeReadOnlyTask("实现一个命令行统计工具")).toBe(false);
   expect(looksLikeReadOnlyTask("修复 AST 护栏 bug")).toBe(false);
+});
+
+test("injected context renders previous conversation and resets checklist per run", async () => {
+  const context = new ContextManager({ systemPrompt: "" });
+  const bus = new EventBus();
+  const client = new RecordingClient([
+    { content: "- [ ] step A", toolCalls: [], finishReason: "stop", usage: usage() },
+    { content: "first done", toolCalls: [], finishReason: "stop", usage: usage() },
+    { content: "- [ ] step B", toolCalls: [], finishReason: "stop", usage: usage() },
+    { content: "second done", toolCalls: [], finishReason: "stop", usage: usage() },
+  ]);
+
+  const first = new ReallityAgent({ workspaceRoot: root, client, eventBus: bus, context });
+  await first.run("first task");
+  expect(context.workingMemory.checklist.map((item) => item.id)).toEqual(["step A"]);
+
+  context.workingMemory.previousTasks = [{ task: "first task", answer: "first done" }];
+  const second = new ReallityAgent({ workspaceRoot: root, client, eventBus: bus, context });
+  const result = await second.run("second task");
+
+  expect(result.success).toBe(true);
+  const plannerSystem = client.seen[2][0].content;
+  expect(plannerSystem).toContain("Previous conversation");
+  expect(plannerSystem).toContain("first task");
+  expect(plannerSystem).not.toContain("step A");
+  expect(context.workingMemory.checklist.map((item) => item.id)).toEqual(["step B"]);
+});
+
+test("answers do not leak across agent instances sharing a context", async () => {
+  const context = new ContextManager({ systemPrompt: "" });
+  const client = new RecordingClient([
+    { content: "- [ ] step A", toolCalls: [], finishReason: "stop", usage: usage() },
+    { content: "first answer", toolCalls: [], finishReason: "stop", usage: usage() },
+    { content: "- [ ] step B", toolCalls: [], finishReason: "stop", usage: usage() },
+    { content: "second answer", toolCalls: [], finishReason: "stop", usage: usage() },
+  ]);
+
+  const first = new ReallityAgent({ workspaceRoot: root, client, context });
+  const firstResult = await first.run("first");
+  const second = new ReallityAgent({ workspaceRoot: root, client, context });
+  const secondResult = await second.run("second");
+
+  expect(firstResult.answer).toBe("first answer");
+  expect(secondResult.answer).toBe("second answer");
 });

@@ -33,6 +33,7 @@ export interface ReallityAgentOptions {
   workspaceRoot: string;
   client: LLMClientLike;
   eventBus?: EventBus;
+  context?: ContextManager;
   runTests?: RunTests;
   maxRounds?: number;
   commitMessagePrefix?: string;
@@ -71,17 +72,25 @@ export class ReallityAgent {
     this.fsm = new FSMEngine({ maxRounds: options.maxRounds });
     this.breaker = new CircuitBreaker(3);
     this.checkpoint = new GitCheckpoint(options.workspaceRoot);
-    this.context = new ContextManager({
-      systemPrompt: "",
-      maxHistoryMessages: 60,
-    });
+    this.context =
+      options.context ??
+      new ContextManager({
+        systemPrompt: "",
+        maxHistoryMessages: 60,
+      });
     this.runTests = options.runTests ?? ((root) => runVerification(root));
     this.commitMessagePrefix = options.commitMessagePrefix ?? "agent";
   }
 
   async run(task: string): Promise<AgentRunResult> {
     const started = Date.now();
+    this.finalAnswer = "";
+    this.lastLlmContent = "";
+    this.toolChainSummary = "";
+    this.lastToolOutput = "";
+    this.toolRounds = 0;
     this.readOnly = looksLikeReadOnlyTask(task);
+    this.context.resetChecklist();
     this.emit({ type: "state", state: "init", timestamp: started });
     this.context.appendUser(task);
     const snapshot = await this.checkpoint.capture();
@@ -426,6 +435,12 @@ export class ReallityAgent {
     const checklist = memory.checklist
       .map((item) => `- [${item.status === "done" ? "x" : " "}] ${item.id}`)
       .join("\n");
+    const previousTasks = memory.previousTasks
+      .map(
+        (entry) =>
+          `- ${truncateChars(entry.task, 200)} → ${truncateChars(entry.answer, 500)}`,
+      )
+      .join("\n");
 
     const plannerRules = [
       "You are in PLANNER state.",
@@ -463,6 +478,8 @@ export class ReallityAgent {
       "",
       "Checklist:",
       checklist || "- [ ] Complete the requested task",
+      "",
+      previousTasks ? `Previous conversation:\n${previousTasks}` : "",
       "",
       `Modified files: ${memory.modifiedFiles.join(", ") || "none"}`,
       `Project constraints: ${memory.constraints.join("; ") || "none"}`,
@@ -516,6 +533,10 @@ function parseToolArguments(argumentsJson: string): Record<string, unknown> {
   } catch {
     return {};
   }
+}
+
+function truncateChars(text: string, max: number): string {
+  return text.length <= max ? text : `${text.slice(0, max)}…`;
 }
 
 export function looksLikeReadOnlyTask(task: string): boolean {
