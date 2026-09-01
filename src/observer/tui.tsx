@@ -111,7 +111,11 @@ function TuiApp({
   const [summaryOffset, setSummaryOffset] = useState(0);
   const [workflowOffset, setWorkflowOffset] = useState(0);
   const [expandedToolIds, setExpandedToolIds] = useState<Set<string>>(new Set());
+  const [expandedLlmIds, setExpandedLlmIds] = useState<Set<string>>(new Set());
   const [lastToolId, setLastToolId] = useState<string | null>(null);
+  const [lastLlmId, setLastLlmId] = useState<string | null>(null);
+  const [workflowMaxOffset, setWorkflowMaxOffset] = useState(0);
+  const [summaryMaxOffset, setSummaryMaxOffset] = useState(0);
   const [tick, setTick] = useState(0);
 
   useEffect(() => {
@@ -156,6 +160,7 @@ function TuiApp({
           currentStateRef.current = event.state;
         }
         if (event.type === "llm") {
+          setLastLlmId(`llm-${event.timestamp}`);
           setUsageTotals((current) => ({
             promptTokens: current.promptTokens + event.usage.promptTokens,
             completionTokens:
@@ -196,19 +201,27 @@ function TuiApp({
   useInput((input, key) => {
     if (command.length === 0) {
       if (input === "w") {
-        setWorkflowOffset((current) => Math.max(0, current - 1));
+        setWorkflowOffset((current) =>
+          Math.min(workflowMaxOffset, Math.max(0, current - 1)),
+        );
         return;
       }
       if (input === "s") {
-        setWorkflowOffset((current) => current + 1);
+        setWorkflowOffset((current) =>
+          Math.min(workflowMaxOffset, current + 1),
+        );
         return;
       }
       if (input === "{") {
-        setSummaryOffset((current) => Math.max(0, current - 1));
+        setSummaryOffset((current) =>
+          Math.min(summaryMaxOffset, Math.max(0, current - 1)),
+        );
         return;
       }
       if (input === "}") {
-        setSummaryOffset((current) => current + 1);
+        setSummaryOffset((current) =>
+          Math.min(summaryMaxOffset, current + 1),
+        );
         return;
       }
       if (input === "[") {
@@ -245,12 +258,25 @@ function TuiApp({
       }
       if (key.upArrow || key.downArrow) {
         const delta = key.upArrow ? -1 : 1;
-        setWorkflowOffset((current) => Math.max(0, current + delta));
+        setWorkflowOffset((current) =>
+          Math.min(workflowMaxOffset, Math.max(0, current + delta)),
+        );
         return;
       }
       if (key.pageUp || key.pageDown) {
         const delta = key.pageUp ? -1 : 1;
-        setSummaryOffset((current) => Math.max(0, current + delta));
+        setSummaryOffset((current) =>
+          Math.min(summaryMaxOffset, Math.max(0, current + delta)),
+        );
+        return;
+      }
+      if (key.return && lastLlmId) {
+        setExpandedLlmIds((current) => {
+          const next = new Set(current);
+          if (next.has(lastLlmId)) next.delete(lastLlmId);
+          else next.add(lastLlmId);
+          return next;
+        });
         return;
       }
       if (input === "j" || input === "k") {
@@ -323,6 +349,8 @@ function TuiApp({
               height={workflowHeight - 3}
               width={leftWidth - 6}
               expandedToolIds={expandedToolIds}
+              expandedLlmIds={expandedLlmIds}
+              onMaxOffset={setWorkflowMaxOffset}
             />
           </Panel>
           <Panel
@@ -336,6 +364,7 @@ function TuiApp({
               offset={summaryOffset}
               height={summaryHeight - 3}
               width={leftWidth - 6}
+              onMaxOffset={setSummaryMaxOffset}
             />
           </Panel>
         </Box>
@@ -433,6 +462,8 @@ function WorkflowView({
   height,
   width,
   expandedToolIds,
+  expandedLlmIds,
+  onMaxOffset,
 }: {
   state: AgentState;
   task: string;
@@ -444,6 +475,8 @@ function WorkflowView({
   height: number;
   width: number;
   expandedToolIds: Set<string>;
+  expandedLlmIds: Set<string>;
+  onMaxOffset: (max: number) => void;
 }) {
   const order: AgentState[] = [
     "init",
@@ -479,10 +512,13 @@ function WorkflowView({
     );
     for (const entry of stateLog[item]) {
       const isExpanded = entry.id && expandedToolIds.has(entry.id);
+      const isLlmExpanded = entry.id && expandedLlmIds.has(entry.id);
       const entryText =
         entry.kind === "tool_start" && entry.args
           ? `${entry.text} (${entry.args})`
-          : entry.text;
+          : entry.kind === "llm" && isLlmExpanded && entry.fullText
+            ? entry.fullText
+            : entry.text;
       lines.push(
         <Text
           key={`${item}-${lines.length}`}
@@ -490,7 +526,9 @@ function WorkflowView({
           wrap="truncate"
         >
           {"    "}
-          {truncateText(entryText, width)}
+          {entry.kind === "llm" && isLlmExpanded
+            ? entryText
+            : truncateText(entryText, width)}
         </Text>,
       );
       if (entry.kind === "tool_result" && !isExpanded && entry.outputPreview) {
@@ -510,6 +548,11 @@ function WorkflowView({
       }
     }
   }
+
+  const maxOffset = Math.max(0, lines.length - height);
+  useEffect(() => {
+    onMaxOffset(maxOffset);
+  }, [maxOffset, onMaxOffset]);
 
   return (
     <ScrollableContent
@@ -578,11 +621,13 @@ function SummaryView({
   offset,
   height,
   width,
+  onMaxOffset,
 }: {
   summary: string;
   offset: number;
   height: number;
   width: number;
+  onMaxOffset: (max: number) => void;
 }) {
   const rawLines = summary.trim()
     ? summary.split("\n")
@@ -592,6 +637,10 @@ function SummaryView({
       {line}
     </Text>
   ));
+  const maxOffset = Math.max(0, lines.length - height);
+  useEffect(() => {
+    onMaxOffset(maxOffset);
+  }, [maxOffset, onMaxOffset]);
   return (
     <ScrollableContent
       lines={lines}
@@ -727,7 +776,9 @@ function summarizeActivity(event: AgentEvent): ActivityItem | null {
     case "llm":
       return {
         kind: "llm",
-        text: `LLM: ${cleanLlmText(event.content)}`,
+        id: `llm-${event.timestamp}`,
+        text: `LLM Output: "${truncateText(cleanLlmText(event.content), 60)}" (按 Enter 查看完整文本)`,
+        fullText: cleanLlmText(event.content),
         color: "white",
       };
     case "tool_start":
