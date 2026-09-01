@@ -1,7 +1,10 @@
+import { existsSync } from "node:fs";
+import path from "node:path";
 import { VERSION } from "./version.ts";
 import { OpenAICompatibleClient } from "./llm/client.ts";
 import { ReallityAgent } from "./agent.ts";
 import { EventBus } from "./observer/events.ts";
+import { Session } from "./session.ts";
 import { startTUI } from "./observer/tui.tsx";
 import { startWebUI } from "./web/server.ts";
 import { loadProjectEnvFiles } from "./config.ts";
@@ -19,6 +22,10 @@ export interface CliOptions {
   port: number;
   showHelp: boolean;
   showVersion: boolean;
+  sessionPath?: string;
+  saveSessionPath?: string;
+  noSession: boolean;
+  workspaceExplicit: boolean;
 }
 
 export function parseCliArgs(argv: string[]): CliOptions {
@@ -33,6 +40,8 @@ export function parseCliArgs(argv: string[]): CliOptions {
     port: Number(process.env.REALLITY_PORT ?? 3000),
     showHelp: false,
     showVersion: false,
+    noSession: false,
+    workspaceExplicit: Boolean(process.env.REALLITY_WORKSPACE?.trim()),
   };
 
   for (let index = 0; index < argv.length; index += 1) {
@@ -46,6 +55,7 @@ export function parseCliArgs(argv: string[]): CliOptions {
         break;
       case "--workspace":
         options.workspace = argv[++index] ?? process.cwd();
+        options.workspaceExplicit = true;
         break;
       case "--model":
         options.model = argv[++index] ?? options.model;
@@ -55,6 +65,15 @@ export function parseCliArgs(argv: string[]): CliOptions {
         break;
       case "--port":
         options.port = Number(argv[++index] ?? 3000);
+        break;
+      case "--session":
+        options.sessionPath = argv[++index] ?? undefined;
+        break;
+      case "--save-session":
+        options.saveSessionPath = argv[++index] ?? undefined;
+        break;
+      case "--no-session":
+        options.noSession = true;
         break;
       case "--help":
       case "-h":
@@ -94,7 +113,7 @@ export async function runCli(argv: string[] = process.argv.slice(2)): Promise<nu
     );
     return 1;
   }
-  if (!options.task) {
+  if (!options.task && options.mode !== "tui") {
     console.error("Missing task. Pass --task \"your request\".");
     return 1;
   }
@@ -133,26 +152,97 @@ export async function runCli(argv: string[] = process.argv.slice(2)): Promise<nu
   }
 
   if (options.mode === "tui") {
+    const envSession = process.env.REALLITY_SESSION?.trim() || undefined;
+    const defaultSavePath = path.join(
+      path.resolve(options.workspace),
+      ".reallity",
+      "session.json",
+    );
+    const autoLoadPath =
+      envSession && existsSync(envSession) ? envSession : undefined;
+    const loadPath =
+      options.sessionPath ?? (options.noSession ? undefined : autoLoadPath);
+    const savePath = options.noSession
+      ? options.saveSessionPath ?? options.sessionPath
+      : options.saveSessionPath ??
+        options.sessionPath ??
+        envSession ??
+        defaultSavePath;
+
+    let session: Session;
+    if (loadPath) {
+      try {
+        const loaded = await Session.load(loadPath, {
+          workspaceRoot: options.workspaceExplicit
+            ? options.workspace
+            : undefined,
+          client,
+          savePath,
+          model: options.model,
+        });
+        session = loaded.session;
+      } catch (error) {
+        console.error(
+          `Failed to resume session: ${
+            error instanceof Error ? error.message : String(error)
+          }`,
+        );
+        return 1;
+      }
+    } else {
+      session = new Session({
+        workspaceRoot: options.workspace,
+        client,
+        savePath,
+        model: options.model,
+      });
+    }
+
     const stopTUI = startTUI(eventBus, {
       model: options.model,
       mode: options.mode,
       task: options.task,
       tokenLimit: Number(process.env.REALLITY_TOKEN_LIMIT ?? 200_000),
-      workspaceRoot: options.workspace,
-      onTask: (task) => {
-        const nextAgent = new ReallityAgent({
-          workspaceRoot: options.workspace,
-          client,
-          eventBus,
-        });
-        void nextAgent.run(task);
+      workspaceRoot: session.workspaceRoot,
+      resumed: Boolean(loadPath),
+      onAsk: (task) => {
+        void session.ask(task);
+      },
+      onSave: (sessionPath) => {
+        void (async () => {
+          try {
+            await session.save(sessionPath);
+            eventBus.emit({
+              type: "notice",
+              message: `Session saved to ${sessionPath ?? session.savePath}`,
+              timestamp: Date.now(),
+            });
+          } catch (error) {
+            eventBus.emit({
+              type: "error",
+              message: `Session save failed: ${
+                error instanceof Error ? error.message : String(error)
+              }`,
+              timestamp: Date.now(),
+            });
+          }
+        })();
       },
     });
-    void agent.run(options.task);
+    if (options.task) {
+      void session.ask(options.task);
+    }
     await new Promise<void>((resolve) => {
       process.once("SIGINT", () => resolve());
       process.once("SIGTERM", () => resolve());
     });
+    if (session.savePath) {
+      try {
+        await session.save();
+      } catch {
+        // best-effort save on exit
+      }
+    }
     stopTUI();
     return 0;
   }
