@@ -507,10 +507,13 @@ function WorkflowView({
 
   for (const item of visibleStates) {
     logical.push({
-      text: `${item === state ? "> " : "  "}${item}`,
+      text: `${item === state ? "▼" : "▷"} ${item}`,
       color: item === state ? "green" : "cyan",
     });
-    for (const entry of stateLog[item]) {
+    const entries = stateLog[item];
+    for (let entryIndex = 0; entryIndex < entries.length; entryIndex += 1) {
+      const entry = entries[entryIndex];
+      const isLast = entryIndex === entries.length - 1;
       const isExpanded = entry.id && expandedToolIds.has(entry.id);
       const isLlmExpanded = entry.id && expandedLlmIds.has(entry.id);
       let entryText = entry.text;
@@ -529,7 +532,7 @@ function WorkflowView({
             : `LLM Output: "${content}"`;
       }
       logical.push({
-        text: `    ${truncateText(entryText, width)}`,
+        text: `    ${isLast ? "└─" : "├─"} ${truncateText(entryText, width)}`,
         color: entry.color ?? "gray",
       });
       if (entry.kind === "tool_result" && !isExpanded && entry.outputPreview) {
@@ -749,6 +752,9 @@ function DiffViewer({
 function summarizeActivity(event: AgentEvent): ActivityItem | null {
   switch (event.type) {
     case "llm":
+      if (!cleanLlmText(event.content) || cleanLlmText(event.content) === "(tool calls)") {
+        return null;
+      }
       return {
         kind: "llm",
         id: `llm-${event.timestamp}`,
@@ -813,7 +819,18 @@ function summarizeToolResult(
   event: Extract<AgentEvent, { type: "tool_result" }>,
 ): string {
   const raw = event.output ?? event.error ?? "";
-  return raw.trim();
+  const lines = raw.trim().split("\n").filter(Boolean);
+  if (event.tool === "read_file") {
+    const first = lines[0] ?? "";
+    return `${lines.length} lines · ${first}`;
+  }
+  if (event.tool === "list_dir") {
+    return `${lines.length} entries · ${lines.slice(0, 3).join(", ")}`;
+  }
+  if (event.tool === "bash") {
+    return event.success ? "exit 0" : `error: ${lines[0] ?? ""}`;
+  }
+  return lines[0] ?? "";
 }
 
 function parseTaskCommand(command: string): string | null {
@@ -962,7 +979,11 @@ function truncateText(content: string, maxWidth: number): string {
 function formatToolArgs(args: Record<string, unknown>): string {
   return Object.entries(args)
     .map(([key, value]) => {
-      const text = typeof value === "string" ? value : JSON.stringify(value);
+      let text = typeof value === "string" ? value : JSON.stringify(value);
+      if (key === "command") {
+        text = text.replace(/\s+/g, " ").trim();
+        text = cliTruncate(text, 90, { position: "end" });
+      }
       return `${key}: ${text}`;
     })
     .join(", ");
