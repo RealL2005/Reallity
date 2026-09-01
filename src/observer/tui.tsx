@@ -401,13 +401,6 @@ function WorkflowView({
           ))}
         </Box>
       ))}
-      {summary ? (
-        <SummaryView
-          summary={summary}
-          offset={summaryOffset}
-          height={8}
-        />
-      ) : null}
     </Box>
   );
 }
