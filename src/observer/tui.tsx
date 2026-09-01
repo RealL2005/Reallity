@@ -403,13 +403,15 @@ export function TuiApp({
       return;
     }
 
-    if (key.return) {
-      if (command.trim()) {
-        if (snapshot.running) {
-          setCommand("");
-          return;
-        }
-        const parsed = parseCommand(command);
+    const { leading, hasBreak } = splitLeadingLine(input);
+    if (hasBreak || key.return) {
+      const text = command + leading;
+      if (snapshot.running) {
+        setCommand("");
+        return;
+      }
+      if (text.trim()) {
+        const parsed = parseCommand(text);
         if (parsed) {
           switch (parsed.type) {
             case "ask":
@@ -440,19 +442,17 @@ export function TuiApp({
               break;
           }
         }
-        setCommand("");
-        return;
-      } else if (activePanel === "llm" && lastLlmId) {
-        setExpandedLlmIds((current) => {
-          const next = new Set(current);
-          if (next.has(lastLlmId)) next.delete(lastLlmId);
-          else next.add(lastLlmId);
-          return next;
-        });
       }
       setCommand("");
       return;
     }
+
+    if (input.length > 1) {
+      // batched plain text without a line break (e.g. paste)
+      setCommand((current) => `${current}${input}`);
+      return;
+    }
+
     if (isEraseKey(input, key)) {
       setCommand((current) => current.slice(0, -1));
       return;
@@ -1057,9 +1057,16 @@ function renderTopologyLines(
     });
   }
   if (state === "rollback") {
+    // nodes.push({
+    //   text: "[● ROLLBACK] ─▶ planner",
+    //   color: "green",
+    // });
     nodes.push({
-      text: "[● ROLLBACK] ─▶ planner",
-      color: "green",
+      text:
+        state === "rollback"
+          ? "[● ROLLBACK] ─▶ planner"
+          : "[rollback] ─▶ [planner]",
+      color: state === "rollback" ? "green" : "gray",
     });
   }
   return nodes;
@@ -1347,6 +1354,17 @@ export function isEraseKey(
     input === "\u007f" ||
     input === "\u0008"
   );
+}
+
+export function splitLeadingLine(input: string): {
+  leading: string;
+  hasBreak: boolean;
+} {
+  const match = input.match(/^([^\r\n]*)(\r\n|\r|\n|$)/);
+  return {
+    leading: match?.[1] ?? input,
+    hasBreak: (match?.[2] ?? "") !== "",
+  };
 }
 
 export function parseCommand(input: string): ParsedCommand | null {

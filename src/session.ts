@@ -171,6 +171,18 @@ export class Session {
         context: this.context,
       });
       result = await agent.run(task);
+    } catch (error) {
+      const finishedAt = Date.now();
+      this.bus.emit({
+        type: "session_task_end",
+        index,
+        task,
+        success: false,
+        answer: error instanceof Error ? error.message : String(error),
+        rounds: 0,
+        timestamp: finishedAt,
+      });
+      throw error;
     } finally {
       this.running = false;
     }

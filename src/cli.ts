@@ -206,7 +206,15 @@ export async function runCli(argv: string[] = process.argv.slice(2)): Promise<nu
       workspaceRoot: session.workspaceRoot,
       resumed: Boolean(loadPath),
       onAsk: (task) => {
-        void session.ask(task);
+        void session.ask(task).catch((error) => {
+          eventBus.emit({
+            type: "error",
+            message: `Task failed: ${
+              error instanceof Error ? error.message : String(error)
+            }`,
+            timestamp: Date.now(),
+          });
+        });
       },
       onSave: (sessionPath) => {
         void (async () => {

@@ -9,6 +9,7 @@ import {
   parseMarkdownTableData,
   buildConversation,
   computeHeights,
+  splitLeadingLine,
   stateColor,
   tailLines,
   TuiApp,
@@ -162,6 +163,16 @@ test("isEraseKey recognizes backspace across key formats", () => {
   expect(isEraseKey("\u0008", {})).toBe(true);
   expect(isEraseKey("a", {})).toBe(false);
   expect(isEraseKey("", {})).toBe(false);
+});
+
+test("splitLeadingLine separates batched input at line breaks", () => {
+  expect(splitLeadingLine("hi\r")).toEqual({ leading: "hi", hasBreak: true });
+  expect(splitLeadingLine("\r")).toEqual({ leading: "", hasBreak: true });
+  expect(splitLeadingLine("a\nb")).toEqual({ leading: "a", hasBreak: true });
+  expect(splitLeadingLine("hello")).toEqual({
+    leading: "hello",
+    hasBreak: false,
+  });
 });
 
 class FakeStdout {

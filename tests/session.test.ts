@@ -183,3 +183,20 @@ test("task records capture event ranges", async () => {
   expect(session.tasks[1].eventStart).toBe(firstEnd);
   expect(session.tasks[1].eventEnd).toBeGreaterThan(firstEnd);
 });
+
+test("ask emits session_task_end even when the agent run throws", async () => {
+  const bus = new EventBus();
+  const badRoot = await mkdtemp(path.join(tmpdir(), "reallity-nogit-"));
+  const session = new Session({
+    workspaceRoot: badRoot,
+    client: new FakeClient([]),
+    eventBus: bus,
+  });
+
+  await expect(session.ask("boom")).rejects.toThrow(/git/i);
+  const end = bus.history.find((event) => event.type === "session_task_end");
+  expect(end).toBeDefined();
+  expect(end?.type === "session_task_end" ? end.success : null).toBe(false);
+  expect(session.busy).toBe(false);
+  await rm(badRoot, { recursive: true, force: true });
+});
