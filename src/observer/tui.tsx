@@ -210,6 +210,16 @@ function TuiApp({
     }
     if (key.upArrow || key.downArrow) {
       const delta = key.upArrow ? -1 : 1;
+      setWorkflowOffset((current) => Math.max(0, current + delta));
+      return;
+    }
+    if (key.pageUp || key.pageDown) {
+      const delta = key.pageUp ? -1 : 1;
+      setSummaryOffset((current) => Math.max(0, current + delta));
+      return;
+    }
+    if (input === "j" || input === "k") {
+      const delta = input === "k" ? -1 : 1;
       setDiffOffsets((current) => {
         const next = [...current];
         next[diffFocus] = Math.max(0, (next[diffFocus] ?? 0) + delta);
