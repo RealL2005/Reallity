@@ -76,10 +76,14 @@ function TuiApp({
   const terminalHeight = Math.max(28, stdout.rows - 2);
   const bannerHeight = 5;
   const summaryHeight = 8;
+  const topologyHeight = 4;
   const innerHeight = Math.max(20, terminalHeight - bannerHeight - 1);
-  const workflowHeight = Math.max(8, innerHeight - summaryHeight);
-  const llmHeight = 4;
-  const tokenHeight = 5;
+  const workflowHeight = Math.max(
+    8,
+    innerHeight - summaryHeight - topologyHeight,
+  );
+  const llmHeight = 5;
+  const tokenHeight = 7;
   const commandHeight = 3;
   const diffHeight = Math.max(
     8,
@@ -363,6 +367,20 @@ function TuiApp({
       <Box flexDirection="row" height={innerHeight} width={contentWidth}>
         <Box flexDirection="column" width={leftWidth} height={innerHeight}>
           <Panel
+            title="FSM TOPOLOGY"
+            color="cyan"
+            height={topologyHeight}
+            width={leftWidth - 2}
+            focused={activePanel === "left"}
+          >
+            <TopologyBar
+              state={snapshot.state}
+              stateLog={stateLog}
+              tick={tick}
+              width={leftWidth - 6}
+            />
+          </Panel>
+          <Panel
             title="AUTOMATED WORKFLOWS"
             color="cyan"
             height={workflowHeight}
@@ -405,12 +423,10 @@ function TuiApp({
 
         <Box flexDirection="column" width={rightWidth} height={innerHeight}>
           <Panel title="LLM CONTEXT" color="blue" height={llmHeight} width={rightWidth - 2} focused={activePanel === "right"}>
-            <Text color="white">model: {model}</Text>
-            <Text color="white">mode: {mode}</Text>
-            <Text color="white">task: {task || "(no task)"}</Text>
+            <Text color="white" wrap="truncate">model: {model} · mode: {mode} · task: {task || "(no task)"}</Text>
             {snapshot.llm ? (
-            <Text color="gray" wrap="wrap">
-              {snapshot.llm}
+            <Text color="gray" wrap="truncate">
+              {cliTruncate(snapshot.llm, rightWidth - 6, { position: "end" })}
               </Text>
             ) : null}
           </Panel>
@@ -542,8 +558,6 @@ function WorkflowView({
   );
   const logical: ColoredLine[] = [
     { text: `Task: ${task || "(no task)"}`, color: "white" },
-    ...renderTopologyLines(state, failedVerify, tick),
-    { text: "──────────────────────────────", color: "gray" },
   ];
 
   for (const item of visibleStates) {
@@ -616,6 +630,32 @@ function WorkflowView({
       offset={workflowOffset}
       width={width}
     />
+  );
+}
+
+function TopologyBar({
+  state,
+  stateLog,
+  tick,
+  width,
+}: {
+  state: AgentState;
+  stateLog: Record<AgentState, ActivityItem[]>;
+  tick: number;
+  width: number;
+}) {
+  const failedVerify = stateLog.verify.some((entry) =>
+    entry.text.includes("✗ tests failed"),
+  );
+  const lines = renderTopologyLines(state, failedVerify, tick);
+  return (
+    <Box flexDirection="column">
+      {lines.map((line, index) => (
+        <Text key={index} color={line.color} wrap="truncate">
+          {cliTruncate(line.text, width, { position: "end" })}
+        </Text>
+      ))}
+    </Box>
   );
 }
 
@@ -753,15 +793,15 @@ function TokenStats({
       : "n/a";
   return (
     <Box flexDirection="column">
-      <Text color="white">prompt: {usage.promptTokens}</Text>
-      <Text color="white">completion: {usage.completionTokens}</Text>
-      <Text color="white">total: {usage.totalTokens}</Text>
-      <Text color="white">cache hit rate: {cacheHitRate}</Text>
-      <Text color="white">err signatures: {errorCount}/3</Text>
-      <Text color="yellow">est cost: ${cost.toFixed(4)}</Text>
-      <Text color="gray">
-        remaining: {remaining} / {limit}
+      <Text color="white">
+        prompt {usage.promptTokens} · completion {usage.completionTokens} · total{" "}
+        {usage.totalTokens}
       </Text>
+      <Text color="white">
+        cache hit {cacheHitRate} · err signatures {errorCount}/3
+      </Text>
+      <Text color="yellow">est cost ${cost.toFixed(4)}</Text>
+      <Text color="gray">remaining {remaining} / {limit}</Text>
     </Box>
   );
 }
@@ -832,7 +872,7 @@ function summarizeActivity(event: AgentEvent): ActivityItem | null {
       return {
         kind: "tool_result",
         id: `${event.tool}-${event.timestamp}`,
-        text: `${event.tool} ${event.success ? "ok" : "failed"}: ……`,
+        text: `${event.tool} ${event.success ? "ok" : "failed"}`,
         fullText: `${event.tool} ${event.success ? "ok" : "failed"}:\n${
           event.output || event.error || ""
         }`,
@@ -844,7 +884,7 @@ function summarizeActivity(event: AgentEvent): ActivityItem | null {
     case "verification":
       return {
         kind: "verification",
-        text: event.passed ? "✓ tests passed" : "✗ tests failed",
+        text: event.passed ? "✓ passed" : "✗ failed",
         color: event.passed ? "green" : "red",
       };
     case "checklist":
@@ -880,13 +920,13 @@ function summarizeToolResult(
   const lines = raw.trim().split("\n").filter(Boolean);
   if (event.tool === "read_file") {
     const first = lines[0] ?? "";
-    return `${lines.length} lines · ${first}`;
+    return `${lines.length} lines `;
   }
   if (event.tool === "list_dir") {
     return `${lines.length} entries · ${lines.slice(0, 3).join(", ")}`;
   }
   if (event.tool === "bash") {
-    return event.success ? "exit 0" : `error: ${lines[0] ?? ""}`;
+    return event.success ? "exit 0" : "";
   }
   return lines[0] ?? "";
 }
