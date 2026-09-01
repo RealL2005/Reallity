@@ -1,5 +1,8 @@
 import { test, expect } from "bun:test";
-import { parseCliArgs } from "../src/cli.ts";
+import { mkdirSync, mkdtempSync, rmSync, writeFileSync } from "node:fs";
+import { tmpdir } from "node:os";
+import path from "node:path";
+import { parseCliArgs, resolveSessionPaths } from "../src/cli.ts";
 
 test("parseCliArgs parses explicit web mode options", () => {
   const parsed = parseCliArgs([
@@ -75,4 +78,70 @@ test("parseCliArgs accepts session flags", () => {
 test("parseCliArgs marks explicit workspace only when overridden", () => {
   expect(parseCliArgs(["--workspace", "/tmp/x"]).workspaceExplicit).toBe(true);
   expect(parseCliArgs([]).workspaceExplicit).toBe(false);
+});
+
+test("resolveSessionPaths auto-resumes the default session file when present", () => {
+  const dir = mkdtempSync(path.join(tmpdir(), "reallity-cli-"));
+  const defaultFile = path.join(dir, ".reallity", "session.json");
+  mkdirSync(path.dirname(defaultFile), { recursive: true });
+  writeFileSync(defaultFile, "{}");
+  const saved = process.env.REALLITY_SESSION;
+  delete process.env.REALLITY_SESSION;
+  try {
+    const resolved = resolveSessionPaths({ workspace: dir, noSession: false });
+
+    expect(resolved.loadPath).toBe(defaultFile);
+    expect(resolved.savePath).toBe(defaultFile);
+  } finally {
+    rmSync(dir, { recursive: true, force: true });
+    if (saved === undefined) delete process.env.REALLITY_SESSION;
+    else process.env.REALLITY_SESSION = saved;
+  }
+});
+
+test("resolveSessionPaths starts fresh when no session file exists", () => {
+  const dir = mkdtempSync(path.join(tmpdir(), "reallity-cli-"));
+  const saved = process.env.REALLITY_SESSION;
+  delete process.env.REALLITY_SESSION;
+  try {
+    const resolved = resolveSessionPaths({ workspace: dir, noSession: false });
+
+    expect(resolved.loadPath).toBeUndefined();
+    expect(resolved.savePath).toBe(path.join(dir, ".reallity", "session.json"));
+  } finally {
+    rmSync(dir, { recursive: true, force: true });
+    if (saved === undefined) delete process.env.REALLITY_SESSION;
+    else process.env.REALLITY_SESSION = saved;
+  }
+});
+
+test("resolveSessionPaths honors explicit session, save-session, and no-session", () => {
+  const dir = mkdtempSync(path.join(tmpdir(), "reallity-cli-"));
+  const saved = process.env.REALLITY_SESSION;
+  delete process.env.REALLITY_SESSION;
+  try {
+    const explicit = resolveSessionPaths({
+      workspace: dir,
+      sessionPath: "/tmp/a.json",
+      noSession: false,
+    });
+    expect(explicit.loadPath).toBe("/tmp/a.json");
+    expect(explicit.savePath).toBe("/tmp/a.json");
+
+    const saveOnly = resolveSessionPaths({
+      workspace: dir,
+      saveSessionPath: "/tmp/b.json",
+      noSession: false,
+    });
+    expect(saveOnly.loadPath).toBeUndefined();
+    expect(saveOnly.savePath).toBe("/tmp/b.json");
+
+    const none = resolveSessionPaths({ workspace: dir, noSession: true });
+    expect(none.loadPath).toBeUndefined();
+    expect(none.savePath).toBeUndefined();
+  } finally {
+    rmSync(dir, { recursive: true, force: true });
+    if (saved === undefined) delete process.env.REALLITY_SESSION;
+    else process.env.REALLITY_SESSION = saved;
+  }
 });

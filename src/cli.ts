@@ -89,6 +89,46 @@ export function parseCliArgs(argv: string[]): CliOptions {
   return options;
 }
 
+export interface ResolvedSessionPaths {
+  loadPath?: string;
+  savePath?: string;
+}
+
+export function resolveSessionPaths(options: {
+  sessionPath?: string;
+  saveSessionPath?: string;
+  noSession: boolean;
+  workspace: string;
+}): ResolvedSessionPaths {
+  const defaultSavePath = path.join(
+    path.resolve(options.workspace),
+    ".reallity",
+    "session.json",
+  );
+  const envSession = process.env.REALLITY_SESSION?.trim() || undefined;
+
+  if (options.noSession) {
+    return {
+      loadPath: options.sessionPath,
+      savePath: options.saveSessionPath ?? options.sessionPath,
+    };
+  }
+
+  const loadPath =
+    options.sessionPath ??
+    (envSession && existsSync(envSession) ? envSession : undefined) ??
+    (!options.saveSessionPath && existsSync(defaultSavePath)
+      ? defaultSavePath
+      : undefined);
+  const savePath =
+    options.saveSessionPath ??
+    options.sessionPath ??
+    envSession ??
+    defaultSavePath;
+
+  return { loadPath, savePath };
+}
+
 export async function runCli(argv: string[] = process.argv.slice(2)): Promise<number> {
   loadProjectEnvFiles();
   const options = parseCliArgs(argv);
@@ -152,22 +192,7 @@ export async function runCli(argv: string[] = process.argv.slice(2)): Promise<nu
   }
 
   if (options.mode === "tui") {
-    const envSession = process.env.REALLITY_SESSION?.trim() || undefined;
-    const defaultSavePath = path.join(
-      path.resolve(options.workspace),
-      ".reallity",
-      "session.json",
-    );
-    const autoLoadPath =
-      envSession && existsSync(envSession) ? envSession : undefined;
-    const loadPath =
-      options.sessionPath ?? (options.noSession ? undefined : autoLoadPath);
-    const savePath = options.noSession
-      ? options.saveSessionPath ?? options.sessionPath
-      : options.saveSessionPath ??
-        options.sessionPath ??
-        envSession ??
-        defaultSavePath;
+    const { loadPath, savePath } = resolveSessionPaths(options);
 
     let session: Session;
     if (loadPath) {
@@ -184,9 +209,9 @@ export async function runCli(argv: string[] = process.argv.slice(2)): Promise<nu
         session = loaded.session;
       } catch (error) {
         console.error(
-          `Failed to resume session: ${
+          `Failed to resume session ${loadPath}: ${
             error instanceof Error ? error.message : String(error)
-          }`,
+          }\nHint: 会话文件不存在时先运行一次任务生成，或检查 --session 路径。`,
         );
         return 1;
       }
