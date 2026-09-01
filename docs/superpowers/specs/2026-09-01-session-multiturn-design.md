@@ -77,6 +77,8 @@ class Session {
 5. 发射 `session_task_end` 事件，记录 `SessionTaskRecord`（含 `eventStart` / `eventEnd`）。
 6. 自动保存（若配置了 savePath）。
 
+**工作区固定**：`workspaceRoot` 在 Session 创建时确定并全程不变（`ask` 与 TUI `/run` 共用同一根目录），会话内不存在目录漂移。工作区是会话身份的一部分，恢复时校验规则见 5.3 / 5.5。
+
 ## 4. 数据模型
 
 ### 4.1 会话文件（`*.session.json`）
@@ -123,6 +125,7 @@ class Session {
 - `events` 是完整事件数组（含 `session_task_start/end`），据此可重建任意任务区间与 trace。
 - `version` 预留迁移。
 - 不包含 `apiKey` / `baseURL` / 任何密钥。
+- `workspace` 保存为 realpath 规范化的绝对路径，是会话身份属性；恢复时必须一致（见 5.3）。
 
 ### 4.2 ContextManager 序列化
 
@@ -188,7 +191,8 @@ export interface SessionTaskRecord {
 
 - `ask(task)`：见第 3 节流程；`busy` 由内部 `running` 标志控制。
 - `save(path = this.savePath)`：序列化 `{version, workspace, model, createdAt, updatedAt, tasks, context, events}`；保存失败记录到 EventBus（`error` 事件）而不崩溃。
-- `load(path, options)`：读取 + zod 校验；`EventBus` 用 `initialEvents` 种子；`ContextManager` 用 `fromJSON` 恢复；`tasks` 恢复。
+- `load(path, options)`：读取 + zod 校验；`EventBus` 用 `initialEvents` 种子；`ContextManager` 用 `fromJSON` 恢复；`tasks` 恢复；返回 `{ session, workspace }`（或暴露 `resolvedWorkspace`）供 CLI 校验与展示。
+- 工作区校验（恢复的核心规则）：`options.workspaceRoot` 显式传入时必须与会话记录一致（realpath 比较），否则抛错；未传入时以记录为准。记录目录已不存在时报明确错误。
 - 摘要生成：`#N <task> → <answer 截断 500 字符> · 改动 <n> 个文件 · 成功/失败`。
 
 ### 5.4 `src/observer/events.ts`
@@ -200,11 +204,15 @@ export interface SessionTaskRecord {
 
 - 仅 TUI 模式允许 `--task` 为空：无任务时直接进入空闲态（聚焦输入栏），有任务时 `session.ask(task)` 自动开跑。
 - headless / web 保持必填 `--task`（现有校验保留）。
-- 新增参数：
-  - `--session <path>`：启动时 `Session.load` 恢复；同时作为自动保存路径。
-  - `--save-session <path>`：只开启自动保存（不加载）。
-  - 环境变量 `REALLITY_SESSION` 作为默认 session 路径。
-  - 若两者同传：`--session` 负责加载，`--save-session` 覆盖保存路径。
+- 工作区解析：当前 `--workspace` 默认取启动时 cwd。新增规则——`--session` 恢复时，生效工作区以会话记录为准：
+  - 显式传入 `--workspace` 或 `REALLITY_WORKSPACE` 且与记录不一致 → 报错退出，提示“会话属于 <A>，当前生效目录为 <B>”。
+  - 未显式传入 → 使用记录中的工作区，并在启动信息中显示 "Resuming session for workspace <path>"。
+- 会话文件路径（TUI 默认开启自动保存，保证可恢复）：
+  - 默认 `<workspace>/.reallity/session.json`（目录自动创建）。
+  - `--session <path>`：加载该文件并写回；`--save-session <path>`：仅覆盖保存路径；`REALLITY_SESSION`：环境变量默认路径；`--no-session`：关闭自动保存（多轮仍在内存中进行，仅不落盘）。
+  - 若 `--session` 与 `--save-session` 同传：`--session` 负责加载，`--save-session` 覆盖保存路径。
+  - 相对路径按启动时 cwd 解析。
+- 已知限制：同一工作区并发运行多个 TUI 会争用默认会话文件，应显式 `--save-session` 隔离。
 - TUI 分支统一走 `Session`；`onTask` 回调改为 `session.ask`。
 - SIGINT / SIGTERM 退出前尝试 `session.save()`（尽力而为，不阻塞退出）。
 
@@ -240,6 +248,7 @@ export interface SessionTaskRecord {
 
 - 监听 `session_task_start`：清空 workflow 状态日志、diffs、LLM 面板、summary，重置滚动偏移；token 面板显示“本次 / 累计”两行（本次从最近一次 `session_task_start` 起累加）。
 - 监听 `session_task_end`：恢复空闲态，summary 显示最终答案。
+- LLM CONTEXT 面板增加 workspace 一行（恢复会话时高亮显示生效目录，避免误操作）。
 - 新增 **CONVERSATION 面板**（左列）：按序渲染 `You: <task>` / `Agent: <answer 截断>`，从 EventBus 中的会话事件实时构建；挂载时重放 `bus.history` 初始化。
 - `onTask` prop 改为 `onAsk(text: string)`；`startTUI` 选项相应调整。
 
@@ -247,6 +256,8 @@ export interface SessionTaskRecord {
 
 - Session 保存失败：发 `error` 事件并在输入栏提示，不中断对话。
 - Session 加载失败（文件不存在 / JSON 非法 / zod 校验失败）：打印明确错误，退出码 1。
+- 工作区不匹配：打印“会话属于 <A>，当前生效目录为 <B>”，退出码 1。
+- 会话记录的工作区目录已不存在：打印明确错误，退出码 1。
 - 忙碌时调用 `ask`：Session 抛错 + TUI 忽略回车（双保险）。
 - 未知斜杠命令：提示，不发送。
 - `agent.run` 失败：现有行为不变（返回 `success: false`），`session_task_end` 照常发射，`tasks` 记录失败状态。
@@ -272,6 +283,7 @@ export interface SessionTaskRecord {
 - 两次 `ask` 共享历史；第二个任务 system prompt 含上一任务摘要。
 - `busy` 时 `ask` 抛错。
 - `save` / `load` 往返：context、events、tasks 完整恢复；load 后 `ask` 正常续聊。
+- 工作区校验：load 时显式传入不同 workspaceRoot 抛错；未传入时采用记录工作区；记录目录不存在报错。
 - 配置 savePath 时任务结束后自动保存；保存失败不崩溃。
 - 会话事件 `eventStart` / `eventEnd` 区间正确。
 
@@ -279,6 +291,7 @@ export interface SessionTaskRecord {
 
 - TUI 无 `--task` 合法；headless/web 缺 `--task` 仍报错。
 - `--session` / `--save-session` 解析与 env 默认值。
+- `--session` + 不一致的 `--workspace` 报错退出。
 
 ### `tests/observer/tui.test.ts`
 
@@ -303,3 +316,4 @@ export interface SessionTaskRecord {
 - 会话事件加入 `AgentEvent` 联合类型是纯增量，trace 渲染对未知类型已有兜底（`summarize` 需补两个 case）。
 - trace.html 仍是每任务末尾由 agent 覆盖写入；`events` 已含全部会话事件，后续可从会话文件重建完整 trace（本期不做导出命令，仅保证数据完整）。
 - `parseTaskCommand` 被 `parseCommand` 取代，TUI 内无其他调用方。
+- 恢复要求工作区一致（realpath 比较）是新增功能的显式约束，不影响现有单任务流程。
