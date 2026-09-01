@@ -9,6 +9,7 @@ import type { ToolResult } from "./tools/executor.ts";
 import { isMutatingBashCommand } from "./tools/guards.ts";
 import { EventBus } from "./observer/events.ts";
 import { GitCheckpoint } from "./governance/checkpoint.ts";
+import type { CheckpointSnapshot } from "./governance/checkpoint.ts";
 import {
   buildReviewPrompt,
   buildVerificationResult,
@@ -63,6 +64,7 @@ export class ReallityAgent {
   private lastLlmContent = "";
   private toolChainSummary = "";
   private lastToolOutput = "";
+  private checkpointSnapshot?: CheckpointSnapshot;
 
   constructor(options: ReallityAgentOptions) {
     this.workspaceRoot = options.workspaceRoot;
@@ -93,6 +95,7 @@ export class ReallityAgent {
     this.emit({ type: "state", state: "init", timestamp: started });
     this.context.appendUser(task);
     const snapshot = await this.checkpoint.capture();
+    this.checkpointSnapshot = snapshot;
     this.emit({
       type: "checkpoint",
       head: snapshot.head,
@@ -354,8 +357,12 @@ export class ReallityAgent {
       .map((line) => line.trim())
       .filter((line) => line.startsWith("??"))
       .map((line) => line.slice(2).trim());
-    const reviewDiff = [
+    const agentDiff = subtractPreExistingDiff(
       diff,
+      this.checkpointSnapshot?.pendingDiff ?? "",
+    );
+    const reviewDiff = [
+      agentDiff,
       untrackedFiles.length > 0
         ? `Untracked files:\n${untrackedFiles.join("\n")}`
         : "",
@@ -517,6 +524,40 @@ export class ReallityAgent {
 
 function looksLikeNoTests(output: string): boolean {
   return /\b0 tests\b|No tests found/i.test(output);
+}
+
+export function subtractPreExistingDiff(
+  current: string,
+  preExisting: string,
+): string {
+  if (!preExisting) {
+    return current;
+  }
+  const preSections = splitDiffSections(preExisting);
+  if (preSections.length === 0) {
+    return current;
+  }
+  return splitDiffSections(current)
+    .filter((section) => !preSections.includes(section))
+    .join("");
+}
+
+function splitDiffSections(diff: string): string[] {
+  const trimmed = diff.trim();
+  if (!trimmed) {
+    return [];
+  }
+  const lines = trimmed.split("\n");
+  const sections: string[] = [];
+  let start = 0;
+  for (let index = 0; index < lines.length; index += 1) {
+    if (index > 0 && lines[index].startsWith("diff --git ")) {
+      sections.push(lines.slice(start, index).join("\n"));
+      start = index;
+    }
+  }
+  sections.push(lines.slice(start).join("\n"));
+  return sections;
 }
 
 function extractPath(argumentsJson: string): string {

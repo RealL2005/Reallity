@@ -4,7 +4,11 @@ import { execFile } from "node:child_process";
 import { promisify } from "node:util";
 import { tmpdir } from "node:os";
 import path from "node:path";
-import { ReallityAgent, looksLikeReadOnlyTask } from "../src/agent.ts";
+import {
+  ReallityAgent,
+  looksLikeReadOnlyTask,
+  subtractPreExistingDiff,
+} from "../src/agent.ts";
 import { EventBus } from "../src/observer/events.ts";
 import { ContextManager } from "../src/core/context.ts";
 import type { ChatMessage, LLMResponse } from "../src/llm/types.ts";
@@ -569,4 +573,42 @@ test("semantic review rejection sends work back to executor", async () => {
   expect(client.seen[3].map((message) => message.content).join("\n")).toContain(
     "needs more detail",
   );
+});
+
+test("subtractPreExistingDiff removes untouched pre-existing file diffs", () => {
+  const current = [
+    "diff --git a/README.md b/README.md",
+    "index abc..def 100644",
+    "--- a/README.md",
+    "+++ b/README.md",
+    "@@ -1,2 +1,3 @@",
+    "+new line",
+    "diff --git a/src/agent.ts b/src/agent.ts",
+    "index 111..222 100644",
+    "--- a/src/agent.ts",
+    "+++ b/src/agent.ts",
+    "@@ -1,2 +1,2 @@",
+    "-old",
+    "+new",
+  ].join("\n");
+  const preExisting = [
+    "diff --git a/src/agent.ts b/src/agent.ts",
+    "index 111..222 100644",
+    "--- a/src/agent.ts",
+    "+++ b/src/agent.ts",
+    "@@ -1,2 +1,2 @@",
+    "-old",
+    "+new",
+  ].join("\n");
+
+  const result = subtractPreExistingDiff(current, preExisting);
+
+  expect(result).toContain("README.md");
+  expect(result).not.toContain("src/agent.ts");
+});
+
+test("subtractPreExistingDiff keeps everything when there is no pre-existing diff", () => {
+  const current = "diff --git a/x b/x\n--- a/x\n+++ b/x\n@@ -1 +1 @@\n-a\n+b";
+
+  expect(subtractPreExistingDiff(current, "")).toBe(current);
 });
