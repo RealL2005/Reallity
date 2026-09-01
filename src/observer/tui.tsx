@@ -155,15 +155,14 @@ function TuiApp({
   const [activePanel, setActivePanel] = useState<PanelId>("workflow");
   const [errorCount, setErrorCount] = useState(0);
   const workflowMax = useMemo(() => {
-    const visible = getVisibleStates(snapshot.state, stateLog);
-    let logicalCount = 1;
-    for (const item of visible) {
-      logicalCount += expandedStates.has(item)
-        ? stateLog[item].length
-        : 1;
-    }
-    return Math.max(0, logicalCount - Math.max(1, workflowHeight - 4));
-  }, [snapshot.state, stateLog, expandedStates, workflowHeight]);
+    const physicalCount = countWorkflowLines(
+      snapshot.state,
+      stateLog,
+      expandedStates,
+      leftWidth - 6,
+    );
+    return Math.max(0, physicalCount - Math.max(1, workflowHeight - 4));
+  }, [snapshot.state, stateLog, expandedStates, leftWidth, workflowHeight]);
 
   const summaryMax = useMemo(() => {
     const raw = snapshot.summary?.trim()
@@ -1269,6 +1268,49 @@ function getVisibleStates(
     "finish",
   ];
   return order.filter((item) => item === state || stateLog[item].length > 0);
+}
+
+function countWorkflowLines(
+  state: AgentState,
+  stateLog: Record<AgentState, ActivityItem[]>,
+  expandedStates: Set<AgentState>,
+  width: number,
+): number {
+  const logical: string[] = ["Task"];
+  const order: AgentState[] = [
+    "init",
+    "planner",
+    "executor",
+    "verify",
+    "commit",
+    "rollback",
+    "finish",
+  ];
+  for (const item of order) {
+    if (!stateLog[item].length && item !== state) continue;
+    logical.push(item);
+    if (!expandedStates.has(item)) {
+      if (stateLog[item].length) logical.push(`    └─ ${stateLog[item].length} events`);
+      continue;
+    }
+    for (const entry of stateLog[item]) {
+      let text = entry.text;
+      if (entry.kind === "tool_start" && entry.args) {
+        text = `${entry.text} (${entry.args.replace(/\s+/g, " ")})`;
+      } else if (entry.kind === "llm" && entry.fullText) {
+        text = entry.fullText.includes("\n") || entry.fullText.length > width
+          ? `LLM Output: "${entry.fullText.split("\n")[0]}" (按 Enter 查看完整文本)`
+          : `LLM Output: "${entry.fullText}"`;
+      }
+      logical.push(`    ${truncateText(text, width)}`);
+      if (entry.kind === "tool_result" && entry.outputPreview) {
+        logical.push(`      └─ ${truncateText(entry.outputPreview.split("\n")[0], width)}`);
+      }
+    }
+  }
+  return logical.flatMap((line) =>
+    wrapAnsi(line, width, { hard: true }).split("\n"),
+  ).length;
 }
 
 function formatToolArgs(args: Record<string, unknown>): string {
