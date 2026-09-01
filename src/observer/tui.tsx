@@ -289,6 +289,7 @@ function TuiApp({
               tick={tick}
               workflowOffset={workflowOffset}
               height={workflowHeight - 3}
+              width={leftWidth - 4}
             />
           </Panel>
           <Panel
@@ -301,6 +302,7 @@ function TuiApp({
               summary={snapshot.summary ?? ""}
               offset={summaryOffset}
               height={summaryHeight - 3}
+              width={leftWidth - 4}
             />
           </Panel>
         </Box>
@@ -396,6 +398,7 @@ function WorkflowView({
   tick,
   workflowOffset,
   height,
+  width,
 }: {
   state: AgentState;
   task: string;
@@ -405,6 +408,7 @@ function WorkflowView({
   tick: number;
   workflowOffset: number;
   height: number;
+  width: number;
 }) {
   const order: AgentState[] = [
     "init",
@@ -445,7 +449,14 @@ function WorkflowView({
     }
   }
 
-  return <ScrollableContent lines={lines} height={height} offset={workflowOffset} />;
+  return (
+    <ScrollableContent
+      lines={lines}
+      height={height}
+      offset={workflowOffset}
+      width={width}
+    />
+  );
 }
 
 function renderTopologyLines(
@@ -504,10 +515,12 @@ function SummaryView({
   summary,
   offset,
   height,
+  width,
 }: {
   summary: string;
   offset: number;
   height: number;
+  width: number;
 }) {
   const rawLines = summary.trim()
     ? summary.split("\n")
@@ -517,17 +530,26 @@ function SummaryView({
       {line}
     </Text>
   ));
-  return <ScrollableContent lines={lines} height={height} offset={offset} />;
+  return (
+    <ScrollableContent
+      lines={lines}
+      height={height}
+      offset={offset}
+      width={width}
+    />
+  );
 }
 
 function ScrollableContent({
   lines,
   height,
   offset,
+  width,
 }: {
   lines: React.ReactNode[];
   height: number;
   offset: number;
+  width: number;
 }) {
   const maxOffset = Math.max(0, lines.length - height);
   const clamped = Math.min(offset, maxOffset);
@@ -546,7 +568,7 @@ function ScrollableContent({
 
   return (
     <Box flexDirection="row">
-      <Box flexDirection="column" flexGrow={1}>
+      <Box flexDirection="column" width={Math.max(1, width - 1)}>
         {visible}
       </Box>
       <Box flexDirection="column" width={1}>
