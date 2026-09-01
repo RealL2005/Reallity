@@ -66,7 +66,13 @@ export type AgentEvent =
       rounds: number;
       timestamp: number;
     }
-  | { type: "notice"; message: string; timestamp: number };
+  | { type: "notice"; message: string; timestamp: number }
+  | {
+      type: "review";
+      approved: boolean;
+      feedback: string;
+      timestamp: number;
+    };
 
 type EventListener = (event: AgentEvent) => void;
 

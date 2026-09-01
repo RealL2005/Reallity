@@ -201,6 +201,10 @@ function summarize(event: AgentEvent): string {
       return `task #${event.index} success=${event.success}: ${escapeHtml(event.answer)}`;
     case "notice":
       return escapeHtml(event.message);
+    case "review":
+      return `review ${event.approved ? "approved" : "rejected"}: ${escapeHtml(
+        event.feedback,
+      )}`;
   }
 }
 

@@ -207,6 +207,7 @@ export function TuiApp({
   const [summaryOffset, setSummaryOffset] = useState(0);
   const [llmOffset, setLlmOffset] = useState(0);
   const [workflowOffset, setWorkflowOffset] = useState(0);
+  const [conversationOffset, setConversationOffset] = useState(0);
   const [expandedToolIds, setExpandedToolIds] = useState<Set<string>>(new Set());
   const [expandedLlmIds, setExpandedLlmIds] = useState<Set<string>>(new Set());
   const [lastToolId, setLastToolId] = useState<string | null>(null);
@@ -215,7 +216,6 @@ export function TuiApp({
     new Set(["init"]),
   );
   const [stateFocus, setStateFocus] = useState<AgentState>("init");
-  const [tick, setTick] = useState(0);
   const [activePanel, setActivePanel] = useState<PanelId>("workflow");
   const [errorCount, setErrorCount] = useState(0);
 
@@ -245,6 +245,7 @@ export function TuiApp({
       toolError: undefined,
     }));
     setWorkflowOffset(0);
+    setConversationOffset(0);
     setSummaryOffset(0);
     setLlmOffset(0);
     setDiffFocus(0);
@@ -292,11 +293,6 @@ export function TuiApp({
   useEffect(() => {
     const timer = setTimeout(() => setShowSplash(false), splashMs);
     return () => clearTimeout(timer);
-  }, []);
-
-  useEffect(() => {
-    const timer = setInterval(() => setTick((current) => current + 1), 700);
-    return () => clearInterval(timer);
   }, []);
 
   useEffect(
@@ -479,6 +475,10 @@ export function TuiApp({
           setLlmOffset((current) =>
             Math.min(llmMax, Math.max(0, current + delta)),
           );
+        } else if (activePanel === "conversation") {
+          setConversationOffset((current) =>
+            Math.min(conversationMax, Math.max(0, current + delta)),
+          );
         } else {
           setWorkflowOffset((current) =>
             Math.min(workflowMax, Math.max(0, current + delta)),
@@ -563,6 +563,11 @@ export function TuiApp({
     [bus, snapshot.events],
   );
 
+  const conversationMax = useMemo(() => {
+    const physicalCount = conversation.length * 2;
+    return Math.max(0, physicalCount - Math.max(1, conversationHeight - 4));
+  }, [conversation, conversationHeight]);
+
   if (showSplash) {
     return (
       <Box flexDirection="column" paddingX={1}>
@@ -593,7 +598,6 @@ export function TuiApp({
             <TopologyBar
               state={snapshot.state}
               stateLog={stateLog}
-              tick={tick}
               width={leftWidth - 6}
             />
           </Panel>
@@ -608,6 +612,7 @@ export function TuiApp({
               entries={conversation}
               width={leftWidth - 6}
               height={conversationHeight - 3}
+              offset={conversationOffset}
             />
           </Panel>
           <Panel
@@ -965,10 +970,12 @@ function ConversationView({
   entries,
   width,
   height,
+  offset,
 }: {
   entries: ConversationEntry[];
   width: number;
   height: number;
+  offset: number;
 }) {
   if (entries.length === 0) {
     return (
@@ -991,7 +998,7 @@ function ConversationView({
     <StringScrollable
       lines={lines}
       height={height}
-      offset={0}
+      offset={offset}
       width={width}
     />
   );
@@ -1000,18 +1007,16 @@ function ConversationView({
 function TopologyBar({
   state,
   stateLog,
-  tick,
   width,
 }: {
   state: AgentState;
   stateLog: Record<AgentState, ActivityItem[]>;
-  tick: number;
   width: number;
 }) {
   const failedVerify = stateLog.verify.some((entry) =>
     entry.kind === "verification" && entry.success === false,
   );
-  const lines = renderTopologyLines(state, failedVerify, tick);
+  const lines = renderTopologyLines(state, failedVerify);
   return (
     <Box flexDirection="column">
       {lines.map((line, index) => (
@@ -1026,7 +1031,6 @@ function TopologyBar({
 function renderTopologyLines(
   state: AgentState,
   failedVerify: boolean,
-  tick: number,
 ): ColoredLine[] {
   const order: AgentState[] = [
     "init",
@@ -1037,7 +1041,6 @@ function renderTopologyLines(
     "finish",
   ];
   const stateIndex = order.indexOf(state);
-  const blink = tick % 2 === 0;
   const topology = order
     .map((item, index) => {
       const reached = stateIndex >= index;
@@ -1052,21 +1055,14 @@ function renderTopologyLines(
   const nodes: ColoredLine[] = [{ text: topology, color: "cyan" }];
   if (failedVerify) {
     nodes.push({
-      text: `verify --(fail)--▶ executor${blink ? " ⚡" : ""}`,
+      text: "verify --(fail)--▶ executor ⚡",
       color: "yellow",
     });
   }
   if (state === "rollback") {
-    // nodes.push({
-    //   text: "[● ROLLBACK] ─▶ planner",
-    //   color: "green",
-    // });
     nodes.push({
-      text:
-        state === "rollback"
-          ? "[● ROLLBACK] ─▶ planner"
-          : "[rollback] ─▶ [planner]",
-      color: state === "rollback" ? "green" : "gray",
+      text: "[● ROLLBACK] ─▶ planner",
+      color: "green",
     });
   }
   return nodes;
@@ -1237,12 +1233,17 @@ function DiffViewer({
   }, [maxes.join("|"), onMaxOffsets]);
   const offset = offsets[focus] ?? 0;
   return (
-    <StringScrollable
-      lines={logical}
-      height={height}
-      offset={offset}
-      width={width}
-    />
+    <Box flexDirection="column">
+      <Text color="gray" wrap="truncate">
+        [ ]/[]] 切换文件 · [f] 展开/收起 · [↑/↓] 滚动
+      </Text>
+      <StringScrollable
+        lines={logical}
+        height={Math.max(1, height - 1)}
+        offset={offset}
+        width={width}
+      />
+    </Box>
   );
 }
 
@@ -1307,6 +1308,14 @@ function summarizeActivity(event: AgentEvent): ActivityItem | null {
       };
     case "notice":
       return { kind: "notice", text: event.message, color: "gray" };
+    case "review":
+      return {
+        kind: "notice",
+        text: `review ${event.approved ? "✓ approved" : "✗ rejected"}: ${
+          event.feedback
+        }`,
+        color: event.approved ? "green" : "red",
+      };
     case "session_task_start":
     case "session_task_end":
       return null;

@@ -323,6 +323,12 @@ export class ReallityAgent {
     }
 
     const review = await this.semanticVerify(task, verification);
+    this.emit({
+      type: "review",
+      approved: Boolean(review?.approved),
+      feedback: review?.feedback ?? "",
+      timestamp: Date.now(),
+    });
     if (review?.approved) {
       this.transition("commit");
       return;
@@ -609,11 +615,24 @@ export function looksLikeReadOnlyTask(task: string): boolean {
     "重构",
     "删除",
     "写一个",
+    "写入",
+    "写进",
+    "写到",
+    "写回",
+    "更新",
+    "追加",
+    "编辑",
+    "改动",
+    "记录到",
+    "保存到",
+    "输出到",
     "开发",
     "build",
     "add",
     "fix",
     "implement",
+    "write",
+    "update",
   ];
   const hasChangeIntent = changeWords.some((word) => task.includes(word));
   const hasReadOnlyIntent = readOnlyWords.some((word) => task.includes(word));

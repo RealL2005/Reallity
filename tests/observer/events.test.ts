@@ -50,3 +50,17 @@ test("seed appends events without notifying listeners", () => {
   expect(received).toHaveLength(1);
   expect(received[0].type).toBe("notice");
 });
+
+test("review events are emitted and stored", () => {
+  const bus = new EventBus();
+  bus.emit({
+    type: "review",
+    approved: true,
+    feedback: "looks good",
+    timestamp: 1,
+  });
+
+  expect(bus.history).toEqual([
+    { type: "review", approved: true, feedback: "looks good", timestamp: 1 },
+  ]);
+});

@@ -329,6 +329,10 @@ test("looksLikeReadOnlyTask classifies inspection requests as read-only", () => 
   expect(looksLikeReadOnlyTask("解释 src/agent.ts 的流程")).toBe(true);
   expect(looksLikeReadOnlyTask("实现一个命令行统计工具")).toBe(false);
   expect(looksLikeReadOnlyTask("修复 AST 护栏 bug")).toBe(false);
+  expect(
+    looksLikeReadOnlyTask("将有效代码行数的统计结果写入 README.md"),
+  ).toBe(false);
+  expect(looksLikeReadOnlyTask("把统计结果更新到 README.md")).toBe(false);
 });
 
 test("injected context renders previous conversation and resets checklist per run", async () => {
