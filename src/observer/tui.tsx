@@ -166,7 +166,7 @@ function TuiApp({
             const state = currentStateRef.current;
             return {
               ...current,
-              [state]: [...current[state], item].slice(-30),
+              [state]: [...current[state], item],
             };
           });
         }
@@ -242,7 +242,7 @@ function TuiApp({
               const state = currentStateRef.current;
               return {
                 ...current,
-                [state]: [...current[state], item].slice(-30),
+                [state]: [...current[state], item],
               };
             }),
           );
@@ -428,7 +428,7 @@ function WorkflowView({
         {item}
       </Text>,
     );
-    for (const entry of stateLog[item].slice(-10)) {
+    for (const entry of stateLog[item]) {
       lines.push(
         <Text key={`${item}-${lines.length}`} color={entry.color ?? "gray"} wrap="truncate">
           {"    "}
