@@ -1,5 +1,7 @@
 import React, { useEffect, useRef, useState } from "react";
 import { render, Box, Text, useInput, useStdout } from "ink";
+import wrapAnsi from "wrap-ansi";
+import cliTruncate from "cli-truncate";
 import { renderBanner } from "../banner.ts";
 import { executeTool } from "../tools/executor.ts";
 import type { AgentEvent, EventBus } from "./events.ts";
@@ -49,6 +51,7 @@ interface ActivityItem {
   tool?: string;
   args?: string;
   outputPreview?: string;
+  errorSignature?: string;
 }
 
 function TuiApp({
@@ -61,8 +64,21 @@ function TuiApp({
   onTask,
 }: TuiAppProps) {
   const { stdout } = useStdout();
-  const width = Math.max(40, stdout.columns - 2);
-  const height = Math.max(24, stdout.rows - 1);
+  const contentWidth = Math.max(40, stdout.columns - 2);
+  const leftWidth = Math.floor(contentWidth / 2);
+  const rightWidth = contentWidth - leftWidth;
+  const terminalHeight = Math.max(28, stdout.rows - 2);
+  const bannerHeight = 5;
+  const summaryHeight = 8;
+  const innerHeight = Math.max(20, terminalHeight - bannerHeight - 1);
+  const workflowHeight = Math.max(8, innerHeight - summaryHeight - 1);
+  const llmHeight = 4;
+  const tokenHeight = 5;
+  const commandHeight = 3;
+  const diffHeight = Math.max(
+    8,
+    innerHeight - llmHeight - tokenHeight - commandHeight - 4,
+  );
   const [showSplash, setShowSplash] = useState(true);
   const [snapshot, setSnapshot] = useState<TuiSnapshot>({
     state: "init",
@@ -79,6 +95,9 @@ function TuiApp({
   });
   const [diffs, setDiffs] = useState<DiffView[]>([]);
   const [command, setCommand] = useState("");
+  const [expandedDiffs, setExpandedDiffs] = useState<Set<number>>(new Set());
+  const [diffFocus, setDiffFocus] = useState(0);
+  const [diffOffsets, setDiffOffsets] = useState<number[]>([]);
   const [stateLog, setStateLog] = useState<
     Record<AgentState, ActivityItem[]>
   >({
@@ -91,14 +110,26 @@ function TuiApp({
     finish: [],
   });
   const currentStateRef = useRef<AgentState>("init");
-  const [workflowOffset, setWorkflowOffset] = useState(0);
   const [summaryOffset, setSummaryOffset] = useState(0);
-  const [expandedIds, setExpandedIds] = useState<Set<string>>(new Set());
+  const [workflowOffset, setWorkflowOffset] = useState(0);
+  const [expandedToolIds, setExpandedToolIds] = useState<Set<string>>(new Set());
+  const [expandedLlmIds, setExpandedLlmIds] = useState<Set<string>>(new Set());
+  const [lastToolId, setLastToolId] = useState<string | null>(null);
   const [lastLlmId, setLastLlmId] = useState<string | null>(null);
+  const [workflowMaxOffset, setWorkflowMaxOffset] = useState(0);
+  const [summaryMaxOffset, setSummaryMaxOffset] = useState(0);
+  const [tick, setTick] = useState(0);
+  const [activePanel, setActivePanel] = useState<"left" | "right">("left");
+  const [errorCount, setErrorCount] = useState(0);
 
   useEffect(() => {
-    const timer = setTimeout(() => setShowSplash(false), 1_500);
+    const timer = setTimeout(() => setShowSplash(false), 2_200);
     return () => clearTimeout(timer);
+  }, []);
+
+  useEffect(() => {
+    const timer = setInterval(() => setTick((current) => current + 1), 700);
+    return () => clearInterval(timer);
   }, []);
 
   useEffect(
@@ -110,16 +141,28 @@ function TuiApp({
             events: current.events + 1,
             running: event.type !== "finish",
           };
-          if (event.type === "state") next.state = event.state;
-          if (event.type === "llm") next.llm = cleanLlmText(event.content);
-          if (event.type === "tool_start") next.currentTool = event.tool;
-          if (event.type === "tool_result") next.toolError = event.error;
-          if (event.type === "finish")
+
+          if (event.type === "state") {
+            next.state = event.state;
+          } else if (event.type === "llm") {
+            next.llm = cleanLlmText(event.content);
+            next.usage = event.usage;
+          } else if (event.type === "tool_start") {
+            next.currentTool = event.tool;
+            next.toolError = undefined;
+          } else if (event.type === "tool_result") {
+            next.currentTool = event.tool;
+            next.toolError = event.error;
+          } else if (event.type === "finish") {
             next.summary = event.answer || event.message;
+          }
+
           return next;
         });
 
-        if (event.type === "state") currentStateRef.current = event.state;
+        if (event.type === "state") {
+          currentStateRef.current = event.state;
+        }
         if (event.type === "llm") {
           setLastLlmId(`llm-${event.timestamp}`);
           setUsageTotals((current) => ({
@@ -141,6 +184,11 @@ function TuiApp({
             return current.map((diff, i) => (i === index ? event.diff! : diff));
           });
         }
+        if (event.type === "tool_result") {
+          setLastToolId(`${event.tool}-${event.timestamp}`);
+          if (!event.success) setErrorCount((current) => current + 1);
+        }
+        if (event.type === "error") setErrorCount((current) => current + 1);
 
         const item = summarizeActivity(event);
         if (item && event.type !== "state") {
@@ -157,51 +205,34 @@ function TuiApp({
   );
 
   useInput((input, key) => {
-    if (command.length === 0) {
-      if (input === "w") {
-        setWorkflowOffset((current) => Math.max(0, current - 1));
-        return;
-      }
-      if (input === "s") {
-        setWorkflowOffset((current) => current + 1);
-        return;
-      }
-      if (input === "{") {
-        setSummaryOffset((current) => Math.max(0, current - 1));
-        return;
-      }
-      if (input === "}") {
-        setSummaryOffset((current) => current + 1);
-        return;
-      }
-      if (key.upArrow || key.downArrow) {
-        setWorkflowOffset((current) =>
-          Math.max(0, current + (key.upArrow ? -1 : 1)),
-        );
-        return;
-      }
-      if (key.pageUp || key.pageDown) {
-        setSummaryOffset((current) =>
-          Math.max(0, current + (key.pageUp ? -1 : 1)),
-        );
-        return;
-      }
-      if (key.return && lastLlmId) {
-        setExpandedIds((current) => {
-          const next = new Set(current);
-          if (next.has(lastLlmId)) next.delete(lastLlmId);
-          else next.add(lastLlmId);
-          return next;
-        });
-        return;
-      }
+    if (key.tab) {
+      setActivePanel((current) => (current === "left" ? "right" : "left"));
+      return;
     }
 
     if (key.return) {
       if (command.trim()) {
         const taskCommand = parseTaskCommand(command);
-        if (taskCommand) onTask?.(taskCommand);
-        else void runCommand(command, workspaceRoot, (item) => appendItem(item));
+        if (taskCommand) {
+          onTask?.(taskCommand);
+        } else {
+          void runCommand(command, workspaceRoot, (item) =>
+            setStateLog((current) => {
+              const state = currentStateRef.current;
+              return {
+                ...current,
+                [state]: [...current[state], item],
+              };
+            }),
+          );
+        }
+      } else if (activePanel === "left" && lastLlmId) {
+        setExpandedLlmIds((current) => {
+          const next = new Set(current);
+          if (next.has(lastLlmId)) next.delete(lastLlmId);
+          else next.add(lastLlmId);
+          return next;
+        });
       }
       setCommand("");
       return;
@@ -210,21 +241,76 @@ function TuiApp({
       setCommand((current) => current.slice(0, -1));
       return;
     }
+
+    if (command.length === 0) {
+      if (activePanel === "left") {
+        if (key.upArrow || key.downArrow) {
+          const delta = key.upArrow ? -1 : 1;
+          setWorkflowOffset((current) =>
+            Math.min(workflowMaxOffset, Math.max(0, current + delta)),
+          );
+          return;
+        }
+        if (key.pageUp || key.pageDown) {
+          const delta = key.pageUp ? -1 : 1;
+          setSummaryOffset((current) =>
+            Math.min(summaryMaxOffset, Math.max(0, current + delta)),
+          );
+          return;
+        }
+        if (input === "x" && lastToolId) {
+          setExpandedToolIds((current) => {
+            const next = new Set(current);
+            if (next.has(lastToolId)) next.delete(lastToolId);
+            else next.add(lastToolId);
+            return next;
+          });
+          return;
+        }
+        if (input === "c") {
+          setExpandedToolIds(new Set());
+          return;
+        }
+      } else {
+        if (key.upArrow || key.downArrow) {
+          const delta = key.upArrow ? -1 : 1;
+          setDiffOffsets((current) => {
+            const next = [...current];
+            next[diffFocus] = Math.max(0, (next[diffFocus] ?? 0) + delta);
+            return next;
+          });
+          return;
+        }
+        if (input === "[") {
+          setDiffFocus((current) => Math.max(0, current - 1));
+          return;
+        }
+        if (input === "]") {
+          setDiffFocus((current) =>
+            Math.min(Math.max(0, diffs.length - 1), current + 1),
+          );
+          return;
+        }
+        if (input === "f") {
+          setExpandedDiffs((current) => {
+            const next = new Set(current);
+            if (next.has(diffFocus)) next.delete(diffFocus);
+            else next.add(diffFocus);
+            return next;
+          });
+          return;
+        }
+      }
+    }
+
     if (input && !key.ctrl && !key.meta) {
       setCommand((current) => `${current}${input}`);
     }
   });
 
-  function appendItem(item: ActivityItem) {
-    setStateLog((current) => {
-      const state = currentStateRef.current;
-      return { ...current, [state]: [...current[state], item] };
-    });
-  }
-
   if (showSplash) {
     return (
-      <Box flexDirection="column">
+      <Box flexDirection="column" paddingX={1}>
         <Text>{renderBanner("Reallity", "Small")}</Text>
         <Text color="gray">Starting Reallity...</Text>
       </Box>
@@ -232,47 +318,100 @@ function TuiApp({
   }
 
   return (
-    <Box flexDirection="column" width={width}>
+    <Box flexDirection="column" width={contentWidth} height={terminalHeight}>
       <Text>{renderBanner("Reallity", "Small")}</Text>
-      <Panel title="AUTOMATED WORKFLOWS" color="cyan" height={height - 18}>
-        <WorkflowView
-          state={snapshot.state}
-          task={task}
-          stateLog={stateLog}
-          expandedIds={expandedIds}
-          width={width - 4}
-          height={height - 20}
-          offset={workflowOffset}
-        />
-      </Panel>
-      <Panel title="FINAL SUMMARY" color="green" height={7}>
-        <SummaryView
-          summary={snapshot.summary ?? ""}
-          offset={summaryOffset}
-          width={width - 4}
-          height={5}
-        />
-      </Panel>
-      <Panel title="FILE MODIFICATION DIFF" color="blue" height={10}>
-        <DiffViewer diffs={diffs} width={width - 4} height={8} />
-      </Panel>
-      <Panel title="LLM CONTEXT" color="blue" height={4}>
-        <Text wrap="truncate">
-          {model} · {mode} · {task || "(no task)"}
-        </Text>
-        <Text wrap="truncate">{snapshot.llm}</Text>
-      </Panel>
-      <Panel title="TOKEN STATISTICS" color="blue" height={4}>
-        <Text>total {usageTotals.totalTokens} · prompt {usageTotals.promptTokens} · completion {usageTotals.completionTokens}</Text>
-        <Text color="gray">remaining {Math.max(0, tokenLimit - usageTotals.totalTokens)} / {tokenLimit}</Text>
-      </Panel>
-      <Panel title="INTERACTIVE COMMAND INPUT" color="cyan" height={3}>
-        <Text>
-          {" > "}
-          {command}
-          <Text color="gray">█</Text>
-        </Text>
-      </Panel>
+      <Box flexDirection="row" height={innerHeight} width={contentWidth}>
+        <Box flexDirection="column" width={leftWidth} height={innerHeight}>
+          <Panel
+            title="AUTOMATED WORKFLOWS"
+            color="cyan"
+            height={workflowHeight}
+            width={leftWidth - 2}
+            focused={activePanel === "left"}
+          >
+            <WorkflowView
+              state={snapshot.state}
+              task={task}
+              stateLog={stateLog}
+              summary={snapshot.summary}
+              summaryOffset={summaryOffset}
+              tick={tick}
+              workflowOffset={workflowOffset}
+              height={workflowHeight - 3}
+              width={leftWidth - 6}
+              expandedToolIds={expandedToolIds}
+              expandedLlmIds={expandedLlmIds}
+              onMaxOffset={setWorkflowMaxOffset}
+            />
+          </Panel>
+          <Panel
+            title="FINAL SUMMARY"
+            color="green"
+            height={summaryHeight}
+            width={leftWidth - 2}
+            focused={activePanel === "left"}
+          >
+            <SummaryView
+              summary={snapshot.summary ?? ""}
+              offset={summaryOffset}
+              height={summaryHeight - 3}
+              width={leftWidth - 6}
+              onMaxOffset={setSummaryMaxOffset}
+            />
+          </Panel>
+        </Box>
+
+        <Box flexDirection="column" width={rightWidth} height={innerHeight}>
+          <Panel title="LLM CONTEXT" color="blue" height={llmHeight} width={rightWidth - 2} focused={activePanel === "right"}>
+            <Text color="white">model: {model}</Text>
+            <Text color="white">mode: {mode}</Text>
+            <Text color="white">task: {task || "(no task)"}</Text>
+            {snapshot.llm ? (
+            <Text color="gray" wrap="wrap">
+              {snapshot.llm}
+              </Text>
+            ) : null}
+          </Panel>
+
+          <Panel title="TOKEN STATISTICS" color="blue" height={tokenHeight} width={rightWidth - 2} focused={activePanel === "right"}>
+            <TokenStats usage={usageTotals} limit={tokenLimit} errorCount={errorCount} />
+          </Panel>
+
+          <Panel
+            title="FILE MODIFICATION DIFF"
+            color="blue"
+            height={diffHeight}
+            width={rightWidth - 2}
+            focused={activePanel === "right"}
+          >
+            <DiffViewer
+              diffs={diffs}
+              expandedDiffs={expandedDiffs}
+              focus={diffFocus}
+              offsets={diffOffsets}
+              width={rightWidth - 6}
+              height={diffHeight - 3}
+            />
+          </Panel>
+
+          <Panel
+            title="INTERACTIVE COMMAND INPUT"
+            color="cyan"
+            height={commandHeight}
+            width={rightWidth - 2}
+            focused={activePanel === "right"}
+          >
+            <Box flexDirection="row">
+              <Text color="green">{"> AgentCommand: "}</Text>
+              <Text color="white">{command}</Text>
+              <Text color="gray">█</Text>
+            </Box>
+          </Panel>
+        </Box>
+      </Box>
+      <Text color="gray">
+        [Tab] Switch Panel · [↑/↓] Workflow · [PgUp/PgDn] Summary · [Enter] Expand
+      </Text>
     </Box>
   );
 }
@@ -281,22 +420,29 @@ function Panel({
   title,
   color,
   height,
+  width,
+  focused,
   children,
 }: {
   title: string;
   color: string;
-  height: number;
+  height?: number;
+  width?: number;
+  focused?: boolean;
   children: React.ReactNode;
 }) {
   return (
     <Box
-      borderStyle="round"
+      borderStyle={focused ? "double" : "round"}
       borderColor={color}
       flexDirection="column"
       paddingX={1}
       marginBottom={1}
       height={height}
-      overflowY="hidden"
+      width={width}
+      overflowY={height ? "hidden" : undefined}
+      overflowX="hidden"
+      flexShrink={0}
     >
       <Text bold color={color}>
         {title}
@@ -310,24 +456,29 @@ function WorkflowView({
   state,
   task,
   stateLog,
-  expandedIds,
-  width,
+  summary,
+  summaryOffset,
+  tick,
+  workflowOffset,
   height,
-  offset,
+  width,
+  expandedToolIds,
+  expandedLlmIds,
+  onMaxOffset,
 }: {
   state: AgentState;
   task: string;
   stateLog: Record<AgentState, ActivityItem[]>;
-  expandedIds: Set<string>;
-  width: number;
+  summary?: string;
+  summaryOffset: number;
+  tick: number;
+  workflowOffset: number;
   height: number;
-  offset: number;
+  width: number;
+  expandedToolIds: Set<string>;
+  expandedLlmIds: Set<string>;
+  onMaxOffset: (max: number) => void;
 }) {
-  const lines: React.ReactNode[] = [
-    <Text key="task" wrap="truncate">
-      Task: {task}
-    </Text>,
-  ];
   const order: AgentState[] = [
     "init",
     "planner",
@@ -337,96 +488,231 @@ function WorkflowView({
     "rollback",
     "finish",
   ];
-  for (const item of order) {
-    if (!stateLog[item].length && item !== state) continue;
-    lines.push(
-      <Text key={`state-${item}`} color={item === state ? "green" : "cyan"}>
-        {item === state ? "> " : "  "}
-        {item}
-      </Text>,
-    );
+  const visibleStates = order.filter(
+    (item) => item === state || stateLog[item].length > 0,
+  );
+  const failedVerify = stateLog.verify.some((entry) =>
+    entry.text.includes("✗ tests failed"),
+  );
+  const logical: string[] = [
+    `Task: ${task || "(no task)"}`,
+    ...renderTopologyLines(state, failedVerify, tick),
+    "──────────────────────────────",
+  ];
+
+  for (const item of visibleStates) {
+    logical.push(`${item === state ? "> " : "  "}${item}`);
     for (const entry of stateLog[item]) {
-      const expanded = entry.id && expandedIds.has(entry.id);
-      const text = entry.fullText && expanded ? entry.fullText : entry.text;
-      lines.push(
-        <Text key={`${item}-${lines.length}`} color={entry.color ?? "gray"} wrap="truncate">
-          {"    "}
-          {truncateText(text, width)}
-        </Text>,
-      );
+      const isExpanded = entry.id && expandedToolIds.has(entry.id);
+      const isLlmExpanded = entry.id && expandedLlmIds.has(entry.id);
+      let entryText = entry.text;
+      if (entry.kind === "tool_start" && entry.args) {
+        entryText = `${entry.text} (${entry.args})`;
+      } else if (entry.kind === "llm") {
+        const content = entry.fullText ?? "";
+        const needsExpand = content.includes("\n") || content.length > width;
+        entryText = isLlmExpanded
+          ? content
+          : needsExpand
+            ? `LLM Output: "${truncateText(
+                content.split("\n")[0],
+                width - 18,
+              )}" (按 Enter 查看完整文本)`
+            : `LLM Output: "${content}"`;
+      }
+      logical.push(`    ${truncateText(entryText, width)}`);
+      if (entry.kind === "tool_result" && !isExpanded && entry.outputPreview) {
+        logical.push(
+          `      └─ ${truncateText(entry.outputPreview.split("\n")[0], width)}`,
+        );
+      }
+      if (entry.kind === "tool_result" && isExpanded && entry.fullText) {
+        logical.push(entry.fullText);
+      }
     }
   }
-  return <Scrollable lines={lines} height={height} offset={offset} />;
+
+  const maxOffset = Math.max(0, logical.length - height);
+  useEffect(() => {
+    onMaxOffset(maxOffset);
+  }, [maxOffset, onMaxOffset]);
+
+  return (
+    <StringScrollable
+      lines={logical}
+      height={height}
+      offset={workflowOffset}
+      width={width}
+    />
+  );
+}
+
+function renderTopologyLines(
+  state: AgentState,
+  failedVerify: boolean,
+  tick: number,
+): string[] {
+  const order: AgentState[] = [
+    "init",
+    "planner",
+    "executor",
+    "verify",
+    "commit",
+    "finish",
+  ];
+  const stateIndex = order.indexOf(state);
+  const blink = tick % 2 === 0;
+  const topology = order
+    .map((item, index) => {
+      const reached = stateIndex >= index;
+      const active = item === state;
+      const skipped = !reached;
+      const mark = active ? "●" : " ";
+      const arrow = index < order.length - 1 ? " ─▶ " : "";
+      return `${active ? `[${mark} ` : "["}${active ? "" : item}${active ? " " : ""}]${arrow}`;
+    })
+    .join("");
+  const nodes: string[] = [topology];
+  if (failedVerify) {
+    nodes.push(`verify --(fail)--▶ executor${blink ? " ⚡" : ""}`);
+  }
+  nodes.push("rollback ─▶ planner");
+  return nodes;
 }
 
 function SummaryView({
   summary,
   offset,
-  width,
   height,
+  width,
+  onMaxOffset,
 }: {
   summary: string;
   offset: number;
-  width: number;
   height: number;
+  width: number;
+  onMaxOffset: (max: number) => void;
 }) {
-  const raw = summary.trim() ? summary.split("\n") : ["Waiting for final summary..."];
-  const lines = raw.map((line, index) => (
-    <Text key={index} wrap="truncate">
-      {truncateText(line, width)}
-    </Text>
-  ));
-  return <Scrollable lines={lines} height={height} offset={offset} />;
+  const rawLines = summary.trim()
+    ? summary.split("\n")
+    : ["Waiting for final summary..."];
+  const maxOffset = Math.max(0, rawLines.length - height);
+  useEffect(() => {
+    onMaxOffset(maxOffset);
+  }, [maxOffset, onMaxOffset]);
+  return (
+    <StringScrollable
+      lines={rawLines}
+      height={height}
+      offset={offset}
+      width={width}
+    />
+  );
+}
+
+function StringScrollable({
+  lines,
+  height,
+  offset,
+  width,
+}: {
+  lines: string[];
+  height: number;
+  offset: number;
+  width: number;
+}) {
+  const physical = lines.flatMap((line) =>
+    wrapAnsi(line, width, { hard: true }).split("\n"),
+  );
+  const maxOffset = Math.max(0, physical.length - height);
+  const clamped = Math.min(offset, maxOffset);
+  const visible = physical.slice(clamped, clamped + height);
+
+  return (
+    <Box flexDirection="column">
+      {visible.map((line, index) => (
+        <Text key={index}>{line}</Text>
+      ))}
+      <Text color="gray">
+        {clamped + 1}-{Math.min(physical.length, clamped + height)} /{" "}
+        {physical.length}
+      </Text>
+    </Box>
+  );
+}
+
+function TokenStats({
+  usage,
+  limit,
+  errorCount,
+}: {
+  usage: LLMUsage;
+  limit: number;
+  errorCount: number;
+}) {
+  const cost =
+    (usage.promptTokens / 1_000_000) * 3 +
+    (usage.completionTokens / 1_000_000) * 15;
+  const remaining = Math.max(0, limit - usage.totalTokens);
+  const cacheTotal =
+    usage.promptCacheHitTokens + usage.promptCacheMissTokens;
+  const cacheHitRate =
+    cacheTotal > 0
+      ? `${Math.round((usage.promptCacheHitTokens / cacheTotal) * 100)}%`
+      : "n/a";
+  return (
+    <Box flexDirection="column">
+      <Text color="white">prompt: {usage.promptTokens}</Text>
+      <Text color="white">completion: {usage.completionTokens}</Text>
+      <Text color="white">total: {usage.totalTokens}</Text>
+      <Text color="white">cache hit rate: {cacheHitRate}</Text>
+      <Text color="white">err signatures: {errorCount}/3</Text>
+      <Text color="yellow">est cost: ${cost.toFixed(4)}</Text>
+      <Text color="gray">
+        remaining: {remaining} / {limit}
+      </Text>
+    </Box>
+  );
 }
 
 function DiffViewer({
   diffs,
+  expandedDiffs,
+  focus,
+  offsets,
   width,
   height,
 }: {
   diffs: DiffView[];
+  expandedDiffs: Set<number>;
+  focus: number;
+  offsets: number[];
   width: number;
   height: number;
 }) {
-  if (!diffs.length) return <Text color="gray">No file modifications yet</Text>;
-  const all = diffs.flatMap((diff) => [
-    <Text key={diff.path} color="cyan">
-      {diff.path}
-    </Text>,
-    ...diff.oldText.split("\n").map((line, i) => (
-      <Text key={`${diff.path}-old-${i}`} color="red" wrap="truncate">
-        {truncateText(`- ${line}`, width)}
-      </Text>
-    )),
-    ...diff.newText.split("\n").map((line, i) => (
-      <Text key={`${diff.path}-new-${i}`} color="green" wrap="truncate">
-        {truncateText(`+ ${line}`, width)}
-      </Text>
-    )),
-  ]);
-  return <Scrollable lines={all} height={height} offset={0} />;
-}
+  if (diffs.length === 0) {
+    return <Text color="gray">No file modifications yet</Text>;
+  }
 
-function Scrollable({
-  lines,
-  height,
-  offset,
-}: {
-  lines: React.ReactNode[];
-  height: number;
-  offset: number;
-}) {
-  const max = Math.max(0, lines.length - height);
-  const clamped = Math.min(offset, max);
-  const visible = lines.slice(clamped, clamped + height);
-  while (visible.length < height) visible.push(<Text key={`pad-${visible.length}`}> </Text>);
+  const viewport = Math.max(3, height - 3);
+  const logical = diffs.flatMap((diff, index) => {
+    const expanded = expandedDiffs.has(index);
+    const header = `${expanded ? "[-] " : "[+] "}${diff.path}`;
+    if (!expanded) return [header];
+    return [
+      header,
+      ...diff.oldText.split("\n").map((line) => `- ${line}`),
+      ...diff.newText.split("\n").map((line) => `+ ${line}`),
+    ];
+  });
+  const offset = offsets[focus] ?? 0;
   return (
-    <Box flexDirection="column">
-      {visible}
-      <Text color="gray">
-        {clamped + 1}-{Math.min(lines.length, clamped + height)} / {lines.length}
-      </Text>
-    </Box>
+    <StringScrollable
+      lines={logical}
+      height={height}
+      offset={offset}
+      width={width}
+    />
   );
 }
 
@@ -436,8 +722,8 @@ function summarizeActivity(event: AgentEvent): ActivityItem | null {
       return {
         kind: "llm",
         id: `llm-${event.timestamp}`,
-        text: "LLM Output",
         fullText: cleanLlmText(event.content),
+        text: "LLM Output",
         color: "white",
       };
     case "tool_start":
@@ -456,13 +742,10 @@ function summarizeActivity(event: AgentEvent): ActivityItem | null {
         fullText: `${event.tool} ${event.success ? "ok" : "failed"}:\n${
           event.output || event.error || ""
         }`,
+        tool: event.tool,
+        outputPreview: summarizeToolResult(event),
+        errorSignature: event.error,
         color: event.success ? "green" : "red",
-      };
-    case "checklist":
-      return {
-        kind: "checklist",
-        text: `checklist: ${event.items.map((item) => item.id).join(" → ")}`,
-        color: "cyan",
       };
     case "verification":
       return {
@@ -470,25 +753,47 @@ function summarizeActivity(event: AgentEvent): ActivityItem | null {
         text: event.passed ? "✓ tests passed" : "✗ tests failed",
         color: event.passed ? "green" : "red",
       };
+    case "checklist":
+      return {
+        kind: "checklist",
+        text: `checklist: ${event.items.map((item) => item.id).join(" → ")}`,
+        color: "cyan",
+      };
     case "rollback":
-      return { kind: "rollback", text: `rollback: ${event.message}`, color: "yellow" };
+      return {
+        kind: "rollback",
+        text: `rollback: ${event.message}`,
+        color: event.success ? "yellow" : "red",
+      };
     case "error":
-      return { kind: "error", text: `error: ${event.message}`, color: "red" };
-    default:
+      return {
+        kind: "error",
+        text: `error: ${event.message}`,
+        color: "red",
+      };
+    case "diagnostic":
+    case "checkpoint":
+    case "finish":
+    case "state":
       return null;
   }
 }
 
-function formatToolArgs(args: Record<string, unknown>): string {
-  return Object.entries(args)
-    .map(([key, value]) => `${key}: ${typeof value === "string" ? value : JSON.stringify(value)}`)
-    .join(", ");
+function summarizeToolResult(
+  event: Extract<AgentEvent, { type: "tool_result" }>,
+): string {
+  const raw = event.output ?? event.error ?? "";
+  return raw.trim();
 }
 
 function parseTaskCommand(command: string): string | null {
   const trimmed = command.trim();
-  if (trimmed.startsWith("/task ")) return trimmed.slice("/task ".length).trim();
-  if (trimmed.startsWith("task:")) return trimmed.slice("task:".length).trim();
+  if (trimmed.startsWith("/task ")) {
+    return trimmed.slice("/task ".length).trim();
+  }
+  if (trimmed.startsWith("task:")) {
+    return trimmed.slice("task:".length).trim();
+  }
   return null;
 }
 
@@ -502,7 +807,10 @@ async function runCommand(
     {
       id: "agent-command",
       type: "function",
-      function: { name: "bash", arguments: JSON.stringify({ command }) },
+      function: {
+        name: "bash",
+        arguments: JSON.stringify({ command }),
+      },
     },
     { workspaceRoot },
   );
@@ -524,57 +832,81 @@ export function startTUI(
   } = {},
 ): () => void {
   const instance = render(<TuiApp bus={bus} {...options} />);
-  return () => instance.unmount();
+  return () => {
+    instance.unmount();
+  };
 }
 
 export function stateColor(state: AgentState): string {
   switch (state) {
-    case "init": return "gray";
-    case "planner": return "cyan";
-    case "executor": return "yellow";
-    case "verify": return "blue";
-    case "commit": return "green";
-    case "rollback": return "red";
-    case "finish": return "green";
+    case "init":
+      return "gray";
+    case "planner":
+      return "cyan";
+    case "executor":
+      return "yellow";
+    case "verify":
+      return "blue";
+    case "commit":
+      return "green";
+    case "rollback":
+      return "red";
+    case "finish":
+      return "green";
   }
 }
 
 export function cleanLlmText(content: string): string {
-  const without = content.replace(/<tool_calls>[\s\S]*?<\/tool_calls>/gi, "").trim();
-  return without || "(tool calls)";
+  const withoutToolTags = content
+    .replace(/<tool_calls>[\s\S]*?<\/tool_calls>/gi, "")
+    .trim();
+  return withoutToolTags || "(tool calls)";
 }
 
 export function tailLines(content: string, maxLines: number): string {
   const lines = content.split("\n");
   if (lines.length <= maxLines) return content;
   const omitted = lines.length - maxLines;
-  return [`... [${omitted} earlier lines hidden]`, ...lines.slice(-maxLines)].join("\n");
+  return [
+    `... [${omitted} earlier lines hidden]`,
+    ...lines.slice(-maxLines),
+  ].join("\n");
 }
 
 export function formatMarkdownTable(lines: string[]): string[] {
   const rows = lines
     .map((line) => line.trim().replace(/^\|/, "").replace(/\|$/, ""))
     .filter((line) => line.length > 0)
-    .map((line) => line.split("|").map((cell) => cleanInlineMarkdown(cell.trim())))
+    .map((line) =>
+      line.split("|").map((cell) => cleanInlineMarkdown(cell.trim())),
+    )
     .filter((row) => !row.every((cell) => /^:?-+:?$/.test(cell)));
-  if (!rows.length) return [];
+  if (rows.length === 0) return [];
   const columnCount = Math.max(...rows.map((row) => row.length));
   const widths = Array.from({ length: columnCount }, (_, column) =>
     Math.max(1, ...rows.map((row) => (row[column] ?? "").length)),
   );
   const formatRow = (row: string[]) =>
     `| ${row.map((cell, index) => (cell ?? "").padEnd(widths[index] ?? 1)).join(" | ")} |`;
-  const separator = `| ${widths.map((w) => "-".repeat(w)).join(" | ")} |`;
-  return [formatRow(rows[0]), separator, ...rows.slice(1).map(formatRow)];
+  const separator = `| ${widths.map((width) => "-".repeat(width)).join(" | ")} |`;
+  return [
+    formatRow(rows[0]),
+    separator,
+    ...rows.slice(1).map((row) => formatRow(row)),
+  ];
 }
 
-export function parseMarkdownTableData(lines: string[]): Array<Record<string, string>> {
+export function parseMarkdownTableData(
+  lines: string[],
+): Array<Record<string, string>> {
   const rows = lines
     .map((line) => line.trim().replace(/^\|/, "").replace(/\|$/, ""))
     .filter((line) => line.length > 0)
-    .map((line) => line.split("|").map((cell) => cleanInlineMarkdown(cell.trim())))
+    .map((line) =>
+      line.split("|").map((cell) => cleanInlineMarkdown(cell.trim())),
+    )
     .filter((row) => !row.every((cell) => /^:?-+:?$/.test(cell)));
-  if (!rows.length) return [];
+  if (rows.length === 0) return [];
   const [header, ...body] = rows;
   return body.map((row) => {
     const item: Record<string, string> = {};
@@ -595,4 +927,13 @@ function cleanInlineMarkdown(content: string): string {
 function truncateText(content: string, maxWidth: number): string {
   if (content.length <= maxWidth) return content;
   return `${content.slice(0, Math.max(1, maxWidth - 1))}…`;
+}
+
+function formatToolArgs(args: Record<string, unknown>): string {
+  return Object.entries(args)
+    .map(([key, value]) => {
+      const text = typeof value === "string" ? value : JSON.stringify(value);
+      return `${key}: ${text}`;
+    })
+    .join(", ");
 }
