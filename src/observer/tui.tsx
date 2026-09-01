@@ -418,7 +418,7 @@ function TuiApp({
   if (showSplash) {
     return (
       <Box flexDirection="column" paddingX={1}>
-        <Text>{renderBanner("Reallity", "Small")}</Text>
+        <GradientBanner text="Reallity" font="Small" />
         <Text color="gray">Starting Reallity...</Text>
       </Box>
     );
@@ -426,7 +426,7 @@ function TuiApp({
 
   return (
     <Box flexDirection="column" width={contentWidth} height={terminalHeight}>
-      <Text>{renderBanner("Reallity", "Small")}</Text>
+      <GradientBanner text="Reallity" font="Small" />
       <Box flexDirection="row" height={innerHeight} width={contentWidth}>
         <Box flexDirection="column" width={leftWidth} height={innerHeight}>
           <Panel
@@ -597,6 +597,55 @@ function LlmContextView({
   }
   const lines = raw.split("\n").map((text) => ({ text, color: "white" }));
   return <StringScrollable lines={lines} height={height} offset={offset} width={width} />;
+}
+
+function GradientBanner({
+  text,
+  font,
+}: {
+  text: string;
+  font: "Small" | "Standard";
+}) {
+  const banner = renderBanner(text, font);
+  const lines = banner.split("\n").filter((line) => line.length > 0);
+  return (
+    <Box flexDirection="column">
+      {lines.map((line, index) => (
+        <Text key={index} color={gradientHex(index, lines.length)}>
+          {line}
+        </Text>
+      ))}
+    </Box>
+  );
+}
+
+function gradientHex(index: number, total: number): string {
+  const ratio = total <= 1 ? 0 : index / (total - 1);
+  const hue = 185 + ratio * 95;
+  const lightness = 55 + ratio * 18;
+  return hslToHex(hue, 85, lightness);
+}
+
+function hslToHex(h: number, s: number, l: number): string {
+  const sNorm = s / 100;
+  const lNorm = l / 100;
+  const c = (1 - Math.abs(2 * lNorm - 1)) * sNorm;
+  const x = c * (1 - Math.abs(((h / 60) % 2) - 1));
+  const m = lNorm - c / 2;
+  let r = 0;
+  let g = 0;
+  let b = 0;
+  if (h < 60) [r, g, b] = [c, x, 0];
+  else if (h < 120) [r, g, b] = [x, c, 0];
+  else if (h < 180) [r, g, b] = [0, c, x];
+  else if (h < 240) [r, g, b] = [0, x, c];
+  else if (h < 300) [r, g, b] = [x, 0, c];
+  else [r, g, b] = [c, 0, x];
+  const toHex = (value: number) =>
+    Math.round((value + m) * 255)
+      .toString(16)
+      .padStart(2, "0");
+  return `#${toHex(r)}${toHex(g)}${toHex(b)}`;
 }
 
 function buildWorkflowLines({
@@ -829,87 +878,6 @@ function SummaryView({
     />
   );
 }
-
-// function StringScrollable({
-//   lines,
-//   height,
-//   offset,
-//   width,
-// }: {
-//   lines: ColoredLine[];
-//   height: number;
-//   offset: number;
-//   width: number;
-// }) {
-//   const physical = lines.flatMap((line) => {
-//     if (line.wrap === false) {
-//       const single = line.text.replace(/\s+/g, " ");
-//       return [{ text: cliTruncate(single, width, { position: "end" }), color: line.color }];
-//     }
-//     return wrapAnsi(line.text, width, { hard: true })
-//       .split("\n")
-//       .map((text) => ({ text, color: line.color }));
-//   });
-//   const maxOffset = Math.max(0, physical.length - height);
-//   const clamped = Math.min(offset, maxOffset);
-//   const visible = physical.slice(clamped, clamped + height);
-
-//   return (
-//     <Box flexDirection="column">
-//       {visible.map((line, index) => (
-//         <Text key={index} color={line.color} wrap="truncate">
-//           {line.text}
-//         </Text>
-//       ))}
-//       <Text color="gray">
-//         {clamped + 1}-{Math.min(physical.length, clamped + height)} /{" "}
-//         {physical.length}
-//       </Text>
-//     </Box>
-//   );
-// }
-// function StringScrollable({
-//   lines,
-//   height,
-//   offset,
-//   width,
-// }: {
-//   lines: ColoredLine[];
-//   height: number;
-//   offset: number;
-//   width: number;
-// }) {
-//   // 预留 1 行给底部页码指示器 "1-26 / 26"
-//   const contentHeight = Math.max(1, height - 1);
-
-//   const physical = lines.flatMap((line) => {
-//     if (line.wrap === false) {
-//       const single = line.text.replace(/\s+/g, " ");
-//       return [{ text: cliTruncate(single, width, { position: "end" }), color: line.color }];
-//     }
-//     return wrapAnsi(line.text, width, { hard: true })
-//       .split("\n")
-//       .map((text) => ({ text, color: line.color }));
-//   });
-
-//   const maxOffset = Math.max(0, physical.length - contentHeight);
-//   const clamped = Math.min(offset, maxOffset);
-//   const visible = physical.slice(clamped, clamped + contentHeight);
-
-//   return (
-//     <Box flexDirection="column" height={height} overflow="hidden">
-//       {visible.map((line, index) => (
-//         <Text key={index} color={line.color} wrap="truncate-end">
-//           {line.text}
-//         </Text>
-//       ))}
-//       <Text color="gray">
-//         {clamped + 1}-{Math.min(physical.length, clamped + contentHeight)} /{" "}
-//         {physical.length}
-//       </Text>
-//     </Box>
-//   );
-// }
 
 function StringScrollable({
   lines,
