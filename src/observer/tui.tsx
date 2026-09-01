@@ -1,4 +1,4 @@
-import React, { useEffect, useRef, useState } from "react";
+import React, { useEffect, useMemo, useRef, useState } from "react";
 import { render, Box, Text, useInput, useStdout } from "ink";
 import wrapAnsi from "wrap-ansi";
 import cliTruncate from "cli-truncate";
@@ -127,8 +127,6 @@ function TuiApp({
   const [expandedLlmIds, setExpandedLlmIds] = useState<Set<string>>(new Set());
   const [lastToolId, setLastToolId] = useState<string | null>(null);
   const [lastLlmId, setLastLlmId] = useState<string | null>(null);
-  const [workflowMaxOffset, setWorkflowMaxOffset] = useState(0);
-  const [summaryMaxOffset, setSummaryMaxOffset] = useState(0);
   const [expandedStates, setExpandedStates] = useState<Set<AgentState>>(
     new Set(["init"]),
   );
@@ -136,6 +134,26 @@ function TuiApp({
   const [tick, setTick] = useState(0);
   const [activePanel, setActivePanel] = useState<"left" | "right">("left");
   const [errorCount, setErrorCount] = useState(0);
+  const workflowMax = useMemo(() => {
+    const visible = getVisibleStates(snapshot.state, stateLog);
+    let logicalCount = 1;
+    for (const item of visible) {
+      logicalCount += expandedStates.has(item)
+        ? stateLog[item].length
+        : 1;
+    }
+    return Math.max(0, logicalCount - (workflowHeight - 3));
+  }, [snapshot.state, stateLog, expandedStates, workflowHeight]);
+
+  const summaryMax = useMemo(() => {
+    const raw = snapshot.summary?.trim()
+      ? snapshot.summary.split("\n")
+      : ["Waiting for final summary..."];
+    const physicalCount = raw.flatMap((line) =>
+      wrapAnsi(line, leftWidth - 6, { hard: true }).split("\n"),
+    ).length;
+    return Math.max(0, physicalCount - (summaryHeight - 3));
+  }, [snapshot.summary, leftWidth, summaryHeight]);
 
   useEffect(() => {
     const timer = setTimeout(() => setShowSplash(false), 2_200);
@@ -292,14 +310,14 @@ function TuiApp({
         if (key.upArrow || key.downArrow) {
           const delta = key.upArrow ? -1 : 1;
           setWorkflowOffset((current) =>
-            Math.min(workflowMaxOffset, Math.max(0, current + delta)),
+            Math.min(workflowMax, Math.max(0, current + delta)),
           );
           return;
         }
         if (key.pageUp || key.pageDown) {
           const delta = key.pageUp ? -1 : 1;
           setSummaryOffset((current) =>
-            Math.min(summaryMaxOffset, Math.max(0, current + delta)),
+            Math.min(summaryMax, Math.max(0, current + delta)),
           );
           return;
         }
@@ -406,7 +424,6 @@ function TuiApp({
               expandedLlmIds={expandedLlmIds}
               expandedStates={expandedStates}
               stateFocus={stateFocus}
-              onMaxOffset={setWorkflowMaxOffset}
             />
           </Panel>
           <Panel
@@ -421,7 +438,6 @@ function TuiApp({
               offset={summaryOffset}
               height={summaryHeight - 3}
               width={leftWidth - 6}
-              onMaxOffset={setSummaryMaxOffset}
             />
           </Panel>
         </Box>
@@ -531,7 +547,6 @@ function WorkflowView({
   expandedLlmIds,
   expandedStates,
   stateFocus,
-  onMaxOffset,
 }: {
   state: AgentState;
   task: string;
@@ -546,7 +561,6 @@ function WorkflowView({
   expandedLlmIds: Set<string>;
   expandedStates: Set<AgentState>;
   stateFocus: AgentState;
-  onMaxOffset: (max: number) => void;
 }) {
   const order: AgentState[] = [
     "init",
@@ -621,14 +635,6 @@ function WorkflowView({
       }
     }
   }
-
-  const physicalCount = logical.flatMap((line) =>
-    wrapAnsi(line.text, width, { hard: true }).split("\n"),
-  ).length;
-  const maxOffset = Math.max(0, physicalCount - height);
-  useEffect(() => {
-    onMaxOffset(maxOffset);
-  }, [maxOffset, onMaxOffset]);
 
   return (
     <StringScrollable
@@ -708,13 +714,11 @@ function SummaryView({
   offset,
   height,
   width,
-  onMaxOffset,
 }: {
   summary: string;
   offset: number;
   height: number;
   width: number;
-  onMaxOffset: (max: number) => void;
 }) {
   const rawLines = summary.trim()
     ? summary.split("\n")
@@ -723,13 +727,6 @@ function SummaryView({
     text: line,
     color: summary.trim() ? "white" : "gray",
   }));
-  const physicalCount = coloredLines.flatMap((line) =>
-    wrapAnsi(line.text, width, { hard: true }).split("\n"),
-  ).length;
-  const maxOffset = Math.max(0, physicalCount - height);
-  useEffect(() => {
-    onMaxOffset(maxOffset);
-  }, [maxOffset, onMaxOffset]);
   return (
     <StringScrollable
       lines={coloredLines}
