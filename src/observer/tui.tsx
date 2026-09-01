@@ -313,8 +313,8 @@ function TuiApp({
             <Text color="white">mode: {mode}</Text>
             <Text color="white">task: {task || "(no task)"}</Text>
             {snapshot.llm ? (
-              <Text color="gray" wrap="truncate">
-                {truncateText(snapshot.llm, rightWidth - 6)}
+            <Text color="gray" wrap="wrap">
+              {snapshot.llm}
               </Text>
             ) : null}
           </Panel>
@@ -426,7 +426,7 @@ function WorkflowView({
     entry.text.includes("✗ tests failed"),
   );
   const lines: React.ReactNode[] = [
-    <Text key="task" color="white" wrap="truncate">
+    <Text key="task" color="white" wrap="wrap">
       Task: {task || "(no task)"}
     </Text>,
     ...renderTopologyLines(state, failedVerify, tick),
@@ -441,7 +441,7 @@ function WorkflowView({
     );
     for (const entry of stateLog[item]) {
       lines.push(
-        <Text key={`${item}-${lines.length}`} color={entry.color ?? "gray"} wrap="truncate">
+        <Text key={`${item}-${lines.length}`} color={entry.color ?? "gray"} wrap="wrap">
           {"    "}
           {entry.text}
         </Text>,
@@ -526,7 +526,7 @@ function SummaryView({
     ? summary.split("\n")
     : ["Waiting for final summary..."];
   const lines = rawLines.map((line, index) => (
-    <Text key={index} wrap="truncate">
+    <Text key={index} wrap="wrap">
       {line}
     </Text>
   ));
@@ -643,8 +643,8 @@ function DiffViewer({
             {expanded ? (
               <Box flexDirection="column">
                 {visible.map((line, lineIndex) => (
-                  <Text key={lineIndex} color={line.color} wrap="truncate">
-                    {truncateText(line.text, width)}
+                  <Text key={lineIndex} color={line.color} wrap="wrap">
+                    {line.text}
                   </Text>
                 ))}
                 <Text color="gray">
@@ -707,7 +707,7 @@ function summarizeToolResult(
   event: Extract<AgentEvent, { type: "tool_result" }>,
 ): string {
   const raw = event.output ?? event.error ?? "";
-  return truncateText(raw.replace(/\s+/g, " ").trim(), 120);
+  return raw.trim();
 }
 
 function parseTaskCommand(command: string): string | null {
