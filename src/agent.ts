@@ -160,6 +160,11 @@ export class ReallityAgent {
     this.context.addChecklistItems(
       checklist.length > 0 ? checklist : ["Complete the requested task"],
     );
+    this.emit({
+      type: "checklist",
+      items: this.context.workingMemory.checklist,
+      timestamp: Date.now(),
+    });
     this.context.setCurrentGoal(this.context.workingMemory.currentGoal || "Task");
     this.transition("executor");
   }
@@ -274,7 +279,7 @@ export class ReallityAgent {
         this.transition("commit");
         return;
       }
-      await this.review(task);
+      await this.semanticVerify(task);
       return;
     }
 
@@ -298,7 +303,7 @@ export class ReallityAgent {
     this.transition("executor");
   }
 
-  private async review(task: string): Promise<void> {
+  private async semanticVerify(task: string): Promise<void> {
     const [diff, status] = await Promise.all([
       this.checkpoint.diff(),
       this.checkpoint.status(),
@@ -358,6 +363,12 @@ export class ReallityAgent {
 
   private async rollbackAndReplan(): Promise<void> {
     await this.checkpoint.rollback();
+    this.emit({
+      type: "rollback",
+      success: true,
+      message: "Working tree rolled back to checkpoint.",
+      timestamp: Date.now(),
+    });
     this.breaker.reset();
     this.context.addConstraint("Previous attempt was rolled back.");
     this.transition("planner");

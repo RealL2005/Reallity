@@ -1,6 +1,7 @@
 import type { AgentState } from "../fsm/types.ts";
 import type { ToolName } from "../tools/schemas.ts";
 import type { ToolCall } from "../core/context.ts";
+import type { ChecklistItem } from "../core/context.ts";
 import type { Diagnostic } from "../core/diagnostics.ts";
 import type { LLMUsage } from "../llm/types.ts";
 
@@ -40,6 +41,8 @@ export type AgentEvent =
     }
   | { type: "diagnostic"; diagnostic: Diagnostic; timestamp: number }
   | { type: "checkpoint"; head: string; clean: boolean; timestamp: number }
+  | { type: "checklist"; items: ChecklistItem[]; timestamp: number }
+  | { type: "rollback"; success: boolean; message: string; timestamp: number }
   | { type: "error"; message: string; timestamp: number }
   | {
       type: "finish";

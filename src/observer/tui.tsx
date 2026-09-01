@@ -700,14 +700,18 @@ function summarizeActivity(event: AgentEvent): ActivityItem | null {
       return { text: `state: ${event.state}`, color: "cyan" };
     case "llm":
       return {
-        text: `LLM: ${truncateText(cleanLlmText(event.content), 70)}`,
+        text: `LLM: ${cleanLlmText(event.content)}`,
         color: "white",
       };
     case "tool_start":
       return { text: `▶ ${event.tool}`, color: "yellow" };
     case "tool_result":
       return {
-        text: `${event.tool} ${event.success ? "ok" : "failed"}`,
+        text: `${event.tool} ${event.success ? "ok" : "failed"}${
+          event.output || event.error
+            ? `: ${summarizeToolResult(event)}`
+            : ""
+        }`,
         color: event.success ? "green" : "red",
       };
     case "verification":
@@ -719,11 +723,28 @@ function summarizeActivity(event: AgentEvent): ActivityItem | null {
       return { text: event.diagnostic.message, color: "red" };
     case "checkpoint":
       return { text: `checkpoint ${event.head.slice(0, 8)}`, color: "gray" };
+    case "checklist":
+      return {
+        text: `checklist: ${event.items.map((item) => item.id).join(" → ")}`,
+        color: "cyan",
+      };
+    case "rollback":
+      return {
+        text: `rollback: ${event.message}`,
+        color: event.success ? "yellow" : "red",
+      };
     case "error":
       return { text: `error: ${event.message}`, color: "red" };
     case "finish":
       return { text: "finished", color: "green" };
   }
+}
+
+function summarizeToolResult(
+  event: Extract<AgentEvent, { type: "tool_result" }>,
+): string {
+  const raw = event.output ?? event.error ?? "";
+  return truncateText(raw.replace(/\s+/g, " ").trim(), 120);
 }
 
 async function runCommand(

@@ -185,6 +185,12 @@ function summarize(event: AgentEvent): string {
       return escapeHtml(event.diagnostic.message);
     case "checkpoint":
       return `${escapeHtml(event.head)} clean=${event.clean}`;
+    case "checklist":
+      return escapeHtml(
+        event.items.map((item) => item.id).join(" → "),
+      );
+    case "rollback":
+      return escapeHtml(event.message);
     case "error":
       return escapeHtml(event.message);
     case "finish":
