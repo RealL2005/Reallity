@@ -29,6 +29,7 @@ interface TuiSnapshot {
   usage?: LLMUsage;
   events: number;
   running: boolean;
+  summary?: string;
 }
 
 interface ActivityItem {
@@ -77,10 +78,17 @@ function TuiApp({
     finish: [],
   });
   const currentStateRef = useRef<AgentState>("init");
+  const [summaryOffset, setSummaryOffset] = useState(0);
+  const [tick, setTick] = useState(0);
 
   useEffect(() => {
     const timer = setTimeout(() => setShowSplash(false), 2_200);
     return () => clearTimeout(timer);
+  }, []);
+
+  useEffect(() => {
+    const timer = setInterval(() => setTick((current) => current + 1), 700);
+    return () => clearInterval(timer);
   }, []);
 
   useEffect(
@@ -104,6 +112,8 @@ function TuiApp({
           } else if (event.type === "tool_result") {
             next.currentTool = event.tool;
             next.toolError = event.error;
+          } else if (event.type === "finish") {
+            next.summary = event.answer || event.message;
           }
 
           return next;
@@ -148,6 +158,14 @@ function TuiApp({
   );
 
   useInput((input, key) => {
+    if (input === "{") {
+      setSummaryOffset((current) => Math.max(0, current - 1));
+      return;
+    }
+    if (input === "}") {
+      setSummaryOffset((current) => current + 1);
+      return;
+    }
     if (input === "[") {
       setDiffFocus((current) => Math.max(0, current - 1));
       return;
@@ -218,6 +236,9 @@ function TuiApp({
             state={snapshot.state}
             task={task}
             stateLog={stateLog}
+            summary={snapshot.summary}
+            summaryOffset={summaryOffset}
+            tick={tick}
           />
         </Panel>
       </Box>
@@ -289,10 +310,16 @@ function WorkflowView({
   state,
   task,
   stateLog,
+  summary,
+  summaryOffset,
+  tick,
 }: {
   state: AgentState;
   task: string;
   stateLog: Record<AgentState, ActivityItem[]>;
+  summary?: string;
+  summaryOffset: number;
+  tick: number;
 }) {
   const order: AgentState[] = [
     "init",
@@ -306,10 +333,18 @@ function WorkflowView({
   const visibleStates = order.filter(
     (item) => item === state || stateLog[item].length > 0,
   );
+  const failedVerify = stateLog.verify.some((entry) =>
+    entry.text.includes("✗ tests failed"),
+  );
 
   return (
     <Box flexDirection="column">
       <Text color="white">Task: {task || "(no task)"}</Text>
+      <TopologyView
+        state={state}
+        failedVerify={failedVerify}
+        tick={tick}
+      />
       {visibleStates.map((item) => (
         <Box flexDirection="column" key={item}>
           <Text color={item === state ? "green" : "cyan"}>
@@ -324,6 +359,93 @@ function WorkflowView({
           ))}
         </Box>
       ))}
+      {summary ? (
+        <SummaryView
+          summary={summary}
+          offset={summaryOffset}
+          height={8}
+        />
+      ) : null}
+    </Box>
+  );
+}
+
+function TopologyView({
+  state,
+  failedVerify,
+  tick,
+}: {
+  state: AgentState;
+  failedVerify: boolean;
+  tick: number;
+}) {
+  const order: AgentState[] = [
+    "init",
+    "planner",
+    "executor",
+    "verify",
+    "commit",
+    "finish",
+  ];
+  const stateIndex = order.indexOf(state);
+  const blink = tick % 2 === 0;
+
+  return (
+    <Box flexDirection="column" marginBottom={1}>
+      <Text color="gray">
+        {order.map((item, index) => {
+          const reached = stateIndex >= index;
+          const active = item === state;
+          const skipped = !reached;
+          return (
+            <Text key={item} color={active ? "green" : skipped ? "gray" : "cyan"} inverse={active && blink}>
+              {active ? "[● " : "["}
+              {item}
+              {active ? "]" : "]"}
+              {index < order.length - 1 ? " ─▶ " : ""}
+            </Text>
+          );
+        })}
+      </Text>
+      {failedVerify ? (
+        <Text color="yellow" inverse={blink}>
+          verify --(fail)--▶ executor
+        </Text>
+      ) : null}
+      <Text color="gray">rollback ─▶ planner</Text>
+    </Box>
+  );
+}
+
+function SummaryView({
+  summary,
+  offset,
+  height,
+}: {
+  summary: string;
+  offset: number;
+  height: number;
+}) {
+  const lines = summary.split("\n");
+  const clamped = Math.min(offset, Math.max(0, lines.length - height));
+  const visible = lines.slice(clamped, clamped + height);
+  while (visible.length < height) visible.push("");
+
+  return (
+    <Box flexDirection="column" borderStyle="round" borderColor="green" paddingX={1} marginTop={1}>
+      <Text bold color="green">
+        FINAL SUMMARY
+      </Text>
+      <Box flexDirection="column" height={height} overflow="hidden">
+        {visible.map((line, index) => (
+          <Text key={index} wrap="truncate">
+            {line}
+          </Text>
+        ))}
+      </Box>
+      <Text color="gray">
+        {clamped + 1}-{Math.min(lines.length, clamped + height)} / {lines.length} · {"{ }"} scroll
+      </Text>
     </Box>
   );
 }
