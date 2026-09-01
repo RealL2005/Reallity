@@ -1,5 +1,7 @@
 node_modules/
 dist/
+.reallity/
+*.session.json
 .env
 .env.*
 !.env.example
