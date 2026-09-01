@@ -27,6 +27,7 @@ export interface WorkingMemory {
   checklist: ChecklistItem[];
   modifiedFiles: string[];
   constraints: string[];
+  previousTasks: Array<{ task: string; answer: string }>;
 }
 
 export function createInitialWorkingMemory(): WorkingMemory {
@@ -35,6 +36,7 @@ export function createInitialWorkingMemory(): WorkingMemory {
     checklist: [],
     modifiedFiles: [],
     constraints: [],
+    previousTasks: [],
   };
 }
 
@@ -153,6 +155,48 @@ export class ContextManager {
     if (!this.workingMemory.constraints.includes(constraint)) {
       this.workingMemory.constraints.push(constraint);
     }
+  }
+
+  resetChecklist(): void {
+    this.workingMemory.checklist = [];
+  }
+
+  toJSON(): { history: OpenAIMessage[]; workingMemory: WorkingMemory } {
+    return {
+      history: this.history.map((message) => ({
+        ...message,
+        ...(message.tool_calls
+          ? {
+              tool_calls: message.tool_calls.map((call) => ({
+                ...call,
+                function: { ...call.function },
+              })),
+            }
+          : {}),
+      })),
+      workingMemory: {
+        currentGoal: this.workingMemory.currentGoal,
+        checklist: this.workingMemory.checklist.map((item) => ({ ...item })),
+        modifiedFiles: [...this.workingMemory.modifiedFiles],
+        constraints: [...this.workingMemory.constraints],
+        previousTasks: this.workingMemory.previousTasks.map((entry) => ({
+          ...entry,
+        })),
+      },
+    };
+  }
+
+  static fromJSON(
+    data: { history: OpenAIMessage[]; workingMemory: WorkingMemory },
+    options: { maxHistoryMessages?: number } = {},
+  ): ContextManager {
+    const manager = new ContextManager({
+      systemPrompt: "",
+      workingMemory: data.workingMemory,
+      maxHistoryMessages: options.maxHistoryMessages,
+    });
+    manager.history = data.history.map((message) => ({ ...message }));
+    return manager;
   }
 
   serializeOpenAI(): OpenAIMessage[] {

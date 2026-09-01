@@ -74,6 +74,40 @@ test("ContextManager appends messages and serializes OpenAI format", () => {
   });
 });
 
+test("toJSON/fromJSON round-trips history and working memory", () => {
+  const manager = new ContextManager({ systemPrompt: "sys" });
+  manager.appendUser("hello");
+  manager.addConstraint("keep me");
+  manager.addModifiedFile("src/a.ts");
+  manager.addChecklistItems(["step one", "step two"]);
+  manager.workingMemory.previousTasks = [{ task: "first", answer: "done" }];
+
+  const json = manager.toJSON();
+  const restored = ContextManager.fromJSON(json);
+
+  expect(restored.serializeOpenAI().slice(1)).toEqual(
+    manager.serializeOpenAI().slice(1),
+  );
+  expect(restored.workingMemory).toEqual(manager.workingMemory);
+});
+
+test("resetChecklist clears items but keeps constraints and modified files", () => {
+  const manager = new ContextManager({ systemPrompt: "sys" });
+  manager.addChecklistItems(["step one"]);
+  manager.addConstraint("no network");
+  manager.addModifiedFile("src/a.ts");
+
+  manager.resetChecklist();
+
+  expect(manager.workingMemory.checklist).toEqual([]);
+  expect(manager.workingMemory.constraints).toEqual(["no network"]);
+  expect(manager.workingMemory.modifiedFiles).toEqual(["src/a.ts"]);
+});
+
+test("working memory starts with empty previousTasks", () => {
+  expect(createInitialWorkingMemory().previousTasks).toEqual([]);
+});
+
 test("ContextManager serializes assistant reasoning_content", () => {
   const manager = new ContextManager({ systemPrompt: "system" });
 
