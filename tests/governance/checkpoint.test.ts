@@ -88,3 +88,28 @@ test("GitCheckpoint detects untracked files via status and hasChanges", async ()
   expect(await checkpoint.hasChanges()).toBe(true);
   expect(await checkpoint.status()).toContain("?? untracked.txt");
 });
+
+test("GitCheckpoint rollback preserves pre-existing tracked changes", async () => {
+  const checkpoint = new GitCheckpoint(root);
+  await writeFile(path.join(root, "tracked.txt"), "pre-existing\n");
+  await checkpoint.capture();
+
+  await writeFile(path.join(root, "tracked.txt"), "agent change\n");
+  await checkpoint.rollback();
+
+  expect(await readFile(path.join(root, "tracked.txt"), "utf8")).toBe(
+    "pre-existing\n",
+  );
+});
+
+test("GitCheckpoint rollback on a clean capture discards agent changes", async () => {
+  const checkpoint = new GitCheckpoint(root);
+  await checkpoint.capture();
+
+  await writeFile(path.join(root, "tracked.txt"), "agent change\n");
+  await checkpoint.rollback();
+
+  expect(await readFile(path.join(root, "tracked.txt"), "utf8")).toBe(
+    "original\n",
+  );
+});

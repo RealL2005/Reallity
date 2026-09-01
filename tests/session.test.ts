@@ -59,7 +59,7 @@ test("ask runs a task and records session metadata and events", async () => {
   const bus = new EventBus();
   const session = new Session({
     workspaceRoot: root,
-    client: new FakeClient([]),
+    client: new FakeClient(["- [ ] step", "answer", '{"approved": true, "feedback": "ok"}']),
     eventBus: bus,
   });
   const result = await session.ask("hello");
@@ -80,14 +80,16 @@ test("second ask sees the previous task summary in context", async () => {
   const client = new FakeClient([
     "- [ ] step A",
     "first answer",
+    '{"approved": true, "feedback": "ok"}',
     "- [ ] step B",
     "second answer",
+    '{"approved": true, "feedback": "ok"}',
   ]);
   const session = new Session({ workspaceRoot: root, client });
   await session.ask("first task");
   await session.ask("second task");
 
-  const secondPlannerSystem = client.seen[2][0].content;
+  const secondPlannerSystem = client.seen[3][0].content;
   expect(secondPlannerSystem).toContain("Previous conversation");
   expect(secondPlannerSystem).toContain("first task");
   expect(secondPlannerSystem).toContain("first answer");
@@ -97,14 +99,21 @@ test("second ask sees the previous task summary in context", async () => {
 });
 
 test("ask throws when the session is busy", async () => {
-  const session = new Session({ workspaceRoot: root, client: new FakeClient([]) });
+  const session = new Session({
+    workspaceRoot: root,
+    client: new FakeClient(["- [ ] step", "answer", '{"approved": true, "feedback": "ok"}']),
+  });
   (session as unknown as { running: boolean }).running = true;
   await expect(session.ask("x")).rejects.toThrow(/busy/i);
 });
 
 test("save/load round-trips and continues conversation", async () => {
   const sessionPath = path.join(root, ".reallity", "session.json");
-  const firstClient = new FakeClient(["- [ ] step A", "first answer"]);
+  const firstClient = new FakeClient([
+    "- [ ] step A",
+    "first answer",
+    '{"approved": true, "feedback": "ok"}',
+  ]);
   const session = new Session({
     workspaceRoot: root,
     client: firstClient,
@@ -113,7 +122,11 @@ test("save/load round-trips and continues conversation", async () => {
   await session.ask("first task");
   expect(existsSync(sessionPath)).toBe(true);
 
-  const secondClient = new FakeClient(["- [ ] step B", "second answer"]);
+  const secondClient = new FakeClient([
+    "- [ ] step B",
+    "second answer",
+    '{"approved": true, "feedback": "ok"}',
+  ]);
   const loaded = await Session.load(sessionPath, {
     workspaceRoot: root,
     client: secondClient,
@@ -133,7 +146,7 @@ test("load rejects a workspace mismatch", async () => {
   const sessionPath = path.join(root, "session.json");
   const session = new Session({
     workspaceRoot: root,
-    client: new FakeClient([]),
+    client: new FakeClient(["- [ ] step", "answer", '{"approved": true, "feedback": "ok"}']),
     savePath: sessionPath,
   });
   await session.ask("hi");
@@ -149,7 +162,7 @@ test("load rejects when the recorded workspace no longer exists", async () => {
   const sessionPath = path.join(fileDir, "session.json");
   const session = new Session({
     workspaceRoot: root,
-    client: new FakeClient([]),
+    client: new FakeClient(["- [ ] step", "answer", '{"approved": true, "feedback": "ok"}']),
     savePath: sessionPath,
   });
   await session.ask("hi");
@@ -164,7 +177,7 @@ test("load reuses the provided event bus and seeds its history", async () => {
   const sessionPath = path.join(root, "session.json");
   const session = new Session({
     workspaceRoot: root,
-    client: new FakeClient([]),
+    client: new FakeClient(["- [ ] step", "answer", '{"approved": true, "feedback": "ok"}']),
     savePath: sessionPath,
   });
   await session.ask("hi");
@@ -187,7 +200,7 @@ test("ask succeeds even when auto-save fails and emits an error event", async ()
   const bus = new EventBus();
   const session = new Session({
     workspaceRoot: root,
-    client: new FakeClient([]),
+    client: new FakeClient(["- [ ] step", "answer", '{"approved": true, "feedback": "ok"}']),
     eventBus: bus,
     savePath: "/proc/1/forbidden/session.json",
   });
@@ -198,7 +211,17 @@ test("ask succeeds even when auto-save fails and emits an error event", async ()
 });
 
 test("task records capture event ranges", async () => {
-  const session = new Session({ workspaceRoot: root, client: new FakeClient([]) });
+  const session = new Session({
+    workspaceRoot: root,
+    client: new FakeClient([
+      "- [ ] one",
+      "answer one",
+      '{"approved": true, "feedback": "ok"}',
+      "- [ ] two",
+      "answer two",
+      '{"approved": true, "feedback": "ok"}',
+    ]),
+  });
   await session.ask("one");
   const firstEnd = session.tasks[0].eventEnd;
   await session.ask("two");

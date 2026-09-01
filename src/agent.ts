@@ -16,8 +16,7 @@ import {
   runVerification,
   type VerificationResult,
 } from "./verify/runner.ts";
-import { parseReviewResponse } from "./verify/review.ts";
-import { parseDiagnostic } from "./core/diagnostics.ts";
+import { parseReviewResponse, type ReviewResponse } from "./verify/review.ts";
 import { buildTraceHtml } from "./observer/trace.ts";
 
 export interface LLMClientLike {
@@ -294,7 +293,17 @@ export class ReallityAgent {
   }
 
   private async verify(task: string): Promise<void> {
-    const verification = await this.runTests(this.workspaceRoot);
+    let verification: VerificationResult;
+    if (this.readOnly) {
+      verification = {
+        passed: true,
+        exitCode: 0,
+        output: "Read-only task: tests skipped; semantic review gates completion.",
+        diagnostics: [],
+      };
+    } else {
+      verification = await this.runTests(this.workspaceRoot);
+    }
     this.emit({
       type: "verification",
       passed: verification.passed,
@@ -302,36 +311,27 @@ export class ReallityAgent {
       timestamp: Date.now(),
     });
 
-    if (this.readOnly) {
-      if (!verification.passed) {
-        this.context.appendUser(
-          `Verification note (read-only task, not blocking):\n${verification.output}`,
-        );
-      }
+    if (!verification.passed && verification.diagnostics.length > 0) {
+      this.emit({
+        type: "diagnostic",
+        diagnostic: verification.diagnostics[0],
+        timestamp: Date.now(),
+      });
+    }
+
+    const review = await this.semanticVerify(task, verification);
+    if (review?.approved) {
       this.transition("commit");
       return;
     }
 
-    if (verification.passed || looksLikeNoTests(verification.output)) {
-      if (!(await this.checkpoint.hasChanges())) {
-        this.transition("commit");
-        return;
-      }
-      await this.semanticVerify(task);
-      return;
-    }
-
-    const diagnostic =
-      verification.diagnostics[0] ?? parseDiagnostic(verification.output);
-    this.emit({
-      type: "diagnostic",
-      diagnostic,
-      timestamp: Date.now(),
-    });
     this.context.appendUser(
-      `Verification failed:\n${verification.output}\nFix the test failures.`,
+      `Code review requested changes: ${review?.feedback || "not approved"}`,
     );
-    this.breaker.recordError(signatureOf(diagnostic));
+    if (!verification.passed && !looksLikeNoTests(verification.output)) {
+      this.context.appendUser(`Verification output:\n${verification.output}`);
+    }
+    this.breaker.recordError("semantic review rejected");
 
     if (this.breaker.isTripped) {
       this.transition("rollback");
@@ -341,7 +341,10 @@ export class ReallityAgent {
     this.transition("executor");
   }
 
-  private async semanticVerify(task: string): Promise<void> {
+  private async semanticVerify(
+    task: string,
+    verification: VerificationResult,
+  ): Promise<ReviewResponse | null> {
     const [diff, status] = await Promise.all([
       this.checkpoint.diff(),
       this.checkpoint.status(),
@@ -360,10 +363,14 @@ export class ReallityAgent {
       .filter(Boolean)
       .join("\n\n");
     const files = [...this.context.workingMemory.modifiedFiles];
+    const answer =
+      this.finalAnswer || this.lastToolOutput || this.lastLlmContent || "";
     const prompt = buildReviewPrompt({
       requirement: task,
       diff: reviewDiff,
       files,
+      answer,
+      verification: verification.output,
     });
     const response = await this.client.streamCompletion(
       [
@@ -374,17 +381,7 @@ export class ReallityAgent {
       ],
       { tools: [] },
     );
-    const review = parseReviewResponse(response.content);
-
-    if (review?.approved) {
-      this.transition("commit");
-      return;
-    }
-
-    this.context.appendUser(
-      `Code review requested changes: ${review?.feedback ?? response.content}`,
-    );
-    this.transition("executor");
+    return parseReviewResponse(response.content);
   }
 
   private async commit(task: string): Promise<void> {
@@ -520,10 +517,6 @@ export class ReallityAgent {
 
 function looksLikeNoTests(output: string): boolean {
   return /\b0 tests\b|No tests found/i.test(output);
-}
-
-function signatureOf(diagnostic: ReturnType<typeof parseDiagnostic>): string {
-  return `${diagnostic.file ?? "unknown"}:${diagnostic.line ?? "unknown"} ${diagnostic.message}`;
 }
 
 function extractPath(argumentsJson: string): string {

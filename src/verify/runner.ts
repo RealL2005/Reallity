@@ -96,6 +96,8 @@ export interface ReviewPromptInput {
   requirement: string;
   diff: string;
   files: string[];
+  answer?: string;
+  verification?: string;
 }
 
 export function buildReviewPrompt(input: ReviewPromptInput): string {
@@ -105,10 +107,16 @@ export function buildReviewPrompt(input: ReviewPromptInput): string {
     "",
     `Requirement: ${input.requirement}`,
     "",
-    `Changed files: ${input.files.join(", ")}`,
+    `Changed files: ${input.files.join(", ") || "none"}`,
     "",
     "Diff:",
-    input.diff,
+    input.diff || "(no changes)",
+    ...(input.answer ? ["", `Agent's answer:\n${input.answer}`] : []),
+    ...(input.verification
+      ? ["", `Verification output:\n${input.verification}`]
+      : []),
+    "",
+    "Approve only if the requirement is satisfied. Failing verification blocks approval only when the agent's changes caused it; pre-existing or unrelated failures are not the agent's fault.",
   ].join("\n");
 }
 

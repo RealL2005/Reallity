@@ -200,6 +200,12 @@ test("agent repairs a failing verification before committing", async () => {
       usage: usage(),
     },
     {
+      content: '{"approved": false, "feedback": "tests still fail"}',
+      toolCalls: [],
+      finishReason: "stop",
+      usage: usage(),
+    },
+    {
       content: "Now I see the real issue.",
       toolCalls: [],
       finishReason: "stop",
@@ -327,8 +333,10 @@ test("injected context renders previous conversation and resets checklist per ru
   const client = new RecordingClient([
     { content: "- [ ] step A", toolCalls: [], finishReason: "stop", usage: usage() },
     { content: "first done", toolCalls: [], finishReason: "stop", usage: usage() },
+    { content: '{"approved": true, "feedback": "ok"}', toolCalls: [], finishReason: "stop", usage: usage() },
     { content: "- [ ] step B", toolCalls: [], finishReason: "stop", usage: usage() },
     { content: "second done", toolCalls: [], finishReason: "stop", usage: usage() },
+    { content: '{"approved": true, "feedback": "ok"}', toolCalls: [], finishReason: "stop", usage: usage() },
   ]);
 
   const first = new ReallityAgent({ workspaceRoot: root, client, eventBus: bus, context });
@@ -340,7 +348,7 @@ test("injected context renders previous conversation and resets checklist per ru
   const result = await second.run("second task");
 
   expect(result.success).toBe(true);
-  const plannerSystem = client.seen[2][0].content;
+  const plannerSystem = client.seen[3][0].content;
   expect(plannerSystem).toContain("Previous conversation");
   expect(plannerSystem).toContain("first task");
   expect(plannerSystem).not.toContain("step A");
@@ -352,8 +360,10 @@ test("answers do not leak across agent instances sharing a context", async () =>
   const client = new RecordingClient([
     { content: "- [ ] step A", toolCalls: [], finishReason: "stop", usage: usage() },
     { content: "first answer", toolCalls: [], finishReason: "stop", usage: usage() },
+    { content: '{"approved": true, "feedback": "ok"}', toolCalls: [], finishReason: "stop", usage: usage() },
     { content: "- [ ] step B", toolCalls: [], finishReason: "stop", usage: usage() },
     { content: "second answer", toolCalls: [], finishReason: "stop", usage: usage() },
+    { content: '{"approved": true, "feedback": "ok"}', toolCalls: [], finishReason: "stop", usage: usage() },
   ]);
 
   const first = new ReallityAgent({ workspaceRoot: root, client, context });
@@ -369,6 +379,7 @@ test("planner requests no tools while executor keeps tool access", async () => {
   const client = new RecordingClient([
     { content: "- [ ] step", toolCalls: [], finishReason: "stop", usage: usage() },
     { content: "done", toolCalls: [], finishReason: "stop", usage: usage() },
+    { content: '{"approved": true, "feedback": "ok"}', toolCalls: [], finishReason: "stop", usage: usage() },
   ]);
   const agent = new ReallityAgent({ workspaceRoot: root, client });
 
@@ -379,10 +390,11 @@ test("planner requests no tools while executor keeps tool access", async () => {
   expect(client.seenOptions[1]).toEqual({});
 });
 
-test("read-only task finishes despite failing verification", async () => {
+test("read-only task completes through semantic approval without running tests", async () => {
   const client = new RecordingClient([
     { content: "- [ ] count lines", toolCalls: [], finishReason: "stop", usage: usage() },
     { content: "总行数 100", toolCalls: [], finishReason: "stop", usage: usage() },
+    { content: '{"approved": true, "feedback": "ok"}', toolCalls: [], finishReason: "stop", usage: usage() },
   ]);
   const agent = new ReallityAgent({
     workspaceRoot: root,
@@ -428,6 +440,12 @@ test("read-only executor runs past six tool rounds to a natural summary", async 
     ...toolCalls,
     {
       content: "有效代码行数：5466",
+      toolCalls: [],
+      finishReason: "stop",
+      usage: usage(),
+    },
+    {
+      content: '{"approved": true, "feedback": "ok"}',
       toolCalls: [],
       finishReason: "stop",
       usage: usage(),
@@ -485,4 +503,70 @@ test("answer prefers tool output over partial executor content", async () => {
   expect(result.success).toBe(false);
   expect(result.answer).toBe("real-answer");
   expect(result.answer).not.toContain("partial summary");
+});
+
+test("semantic review can approve work despite failing verification", async () => {
+  const client = new RecordingClient([
+    { content: "- [ ] step", toolCalls: [], finishReason: "stop", usage: usage() },
+    { content: "answer ready", toolCalls: [], finishReason: "stop", usage: usage() },
+    {
+      content: '{"approved": true, "feedback": "unrelated flaky failure"}',
+      toolCalls: [],
+      finishReason: "stop",
+      usage: usage(),
+    },
+  ]);
+  const agent = new ReallityAgent({
+    workspaceRoot: root,
+    client,
+    runTests: async (): Promise<VerificationResult> => ({
+      passed: false,
+      exitCode: 1,
+      output: "tests/foo.test.ts:5: error: flaky",
+      diagnostics: [],
+    }),
+  });
+
+  const result = await agent.run("Change hello to hello world");
+
+  expect(result.success).toBe(true);
+  expect(result.state).toBe("finish");
+});
+
+test("semantic review rejection sends work back to executor", async () => {
+  const client = new RecordingClient([
+    { content: "- [ ] step", toolCalls: [], finishReason: "stop", usage: usage() },
+    { content: "first attempt", toolCalls: [], finishReason: "stop", usage: usage() },
+    {
+      content: '{"approved": false, "feedback": "needs more detail"}',
+      toolCalls: [],
+      finishReason: "stop",
+      usage: usage(),
+    },
+    { content: "improved answer", toolCalls: [], finishReason: "stop", usage: usage() },
+    {
+      content: '{"approved": true, "feedback": "ok"}',
+      toolCalls: [],
+      finishReason: "stop",
+      usage: usage(),
+    },
+  ]);
+  const agent = new ReallityAgent({
+    workspaceRoot: root,
+    client,
+    runTests: async (): Promise<VerificationResult> => ({
+      passed: true,
+      exitCode: 0,
+      output: "1 pass\n0 fail",
+      diagnostics: [],
+    }),
+  });
+
+  const result = await agent.run("Change hello to hello world");
+
+  expect(result.success).toBe(true);
+  expect(client.seen.length).toBe(5);
+  expect(client.seen[3].map((message) => message.content).join("\n")).toContain(
+    "needs more detail",
+  );
 });
