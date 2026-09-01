@@ -694,7 +694,7 @@ export function TuiApp({
       >
         <Box flexDirection="row">
           <Text bold color={snapshot.running ? "yellow" : "green"}>
-            {snapshot.running ? "⏳ " : "> "}
+            {snapshot.running ? "⏳" : "> "}
           </Text>
           <Text color="white" bold wrap="truncate">
             {command}
