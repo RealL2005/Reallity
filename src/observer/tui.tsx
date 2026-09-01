@@ -57,6 +57,7 @@ interface ActivityItem {
 interface ColoredLine {
   text: string;
   color?: string;
+  wrap?: boolean;
 }
 
 function TuiApp({
@@ -534,15 +535,17 @@ function WorkflowView({
       logical.push({
         text: `    ${isLast ? "└─" : "├─"} ${truncateText(entryText, width)}`,
         color: entry.color ?? "gray",
+        wrap: false,
       });
       if (entry.kind === "tool_result" && !isExpanded && entry.outputPreview) {
         logical.push({
           text: `      └─ ${truncateText(entry.outputPreview.split("\n")[0], width)}`,
           color: "gray",
+          wrap: false,
         });
       }
       if (entry.kind === "tool_result" && isExpanded && entry.fullText) {
-        logical.push({ text: entry.fullText, color: "white" });
+        logical.push({ text: entry.fullText, color: "white", wrap: true });
       }
     }
   }
@@ -650,11 +653,14 @@ function StringScrollable({
   offset: number;
   width: number;
 }) {
-  const physical = lines.flatMap((line) =>
-    wrapAnsi(line.text, width, { hard: true })
+  const physical = lines.flatMap((line) => {
+    if (line.wrap === false) {
+      return [{ text: cliTruncate(line.text, width, { position: "end" }), color: line.color }];
+    }
+    return wrapAnsi(line.text, width, { hard: true })
       .split("\n")
-      .map((text) => ({ text, color: line.color })),
-  );
+      .map((text) => ({ text, color: line.color }));
+  });
   const maxOffset = Math.max(0, physical.length - height);
   const clamped = Math.min(offset, maxOffset);
   const visible = physical.slice(clamped, clamped + height);
