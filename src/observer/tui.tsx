@@ -173,59 +173,61 @@ function TuiApp({
   );
 
   useInput((input, key) => {
-    if (input === "w") {
-      setWorkflowOffset((current) => Math.max(0, current - 1));
-      return;
-    }
-    if (input === "s") {
-      setWorkflowOffset((current) => current + 1);
-      return;
-    }
-    if (input === "{") {
-      setSummaryOffset((current) => Math.max(0, current - 1));
-      return;
-    }
-    if (input === "}") {
-      setSummaryOffset((current) => current + 1);
-      return;
-    }
-    if (input === "[") {
-      setDiffFocus((current) => Math.max(0, current - 1));
-      return;
-    }
-    if (input === "]") {
-      setDiffFocus((current) =>
-        Math.min(Math.max(0, diffs.length - 1), current + 1),
-      );
-      return;
-    }
-    if (input === "f") {
-      setExpandedDiffs((current) => {
-        const next = new Set(current);
-        if (next.has(diffFocus)) next.delete(diffFocus);
-        else next.add(diffFocus);
-        return next;
-      });
-      return;
-    }
-    if (key.upArrow || key.downArrow) {
-      const delta = key.upArrow ? -1 : 1;
-      setWorkflowOffset((current) => Math.max(0, current + delta));
-      return;
-    }
-    if (key.pageUp || key.pageDown) {
-      const delta = key.pageUp ? -1 : 1;
-      setSummaryOffset((current) => Math.max(0, current + delta));
-      return;
-    }
-    if (input === "j" || input === "k") {
-      const delta = input === "k" ? -1 : 1;
-      setDiffOffsets((current) => {
-        const next = [...current];
-        next[diffFocus] = Math.max(0, (next[diffFocus] ?? 0) + delta);
-        return next;
-      });
-      return;
+    if (command.length === 0) {
+      if (input === "w") {
+        setWorkflowOffset((current) => Math.max(0, current - 1));
+        return;
+      }
+      if (input === "s") {
+        setWorkflowOffset((current) => current + 1);
+        return;
+      }
+      if (input === "{") {
+        setSummaryOffset((current) => Math.max(0, current - 1));
+        return;
+      }
+      if (input === "}") {
+        setSummaryOffset((current) => current + 1);
+        return;
+      }
+      if (input === "[") {
+        setDiffFocus((current) => Math.max(0, current - 1));
+        return;
+      }
+      if (input === "]") {
+        setDiffFocus((current) =>
+          Math.min(Math.max(0, diffs.length - 1), current + 1),
+        );
+        return;
+      }
+      if (input === "f") {
+        setExpandedDiffs((current) => {
+          const next = new Set(current);
+          if (next.has(diffFocus)) next.delete(diffFocus);
+          else next.add(diffFocus);
+          return next;
+        });
+        return;
+      }
+      if (key.upArrow || key.downArrow) {
+        const delta = key.upArrow ? -1 : 1;
+        setWorkflowOffset((current) => Math.max(0, current + delta));
+        return;
+      }
+      if (key.pageUp || key.pageDown) {
+        const delta = key.pageUp ? -1 : 1;
+        setSummaryOffset((current) => Math.max(0, current + delta));
+        return;
+      }
+      if (input === "j" || input === "k") {
+        const delta = input === "k" ? -1 : 1;
+        setDiffOffsets((current) => {
+          const next = [...current];
+          next[diffFocus] = Math.max(0, (next[diffFocus] ?? 0) + delta);
+          return next;
+        });
+        return;
+      }
     }
     if (key.return) {
       if (command.trim()) {
@@ -283,7 +285,7 @@ function TuiApp({
               summaryOffset={summaryOffset}
               tick={tick}
               workflowOffset={workflowOffset}
-              height={workflowHeight - 2}
+              height={workflowHeight - 3}
             />
           </Panel>
           <Panel
