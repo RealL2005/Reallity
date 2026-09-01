@@ -76,7 +76,7 @@ function TuiApp({
   const terminalHeight = Math.max(28, stdout.rows - 2);
   const bannerHeight = 5;
   const summaryHeight = 8;
-  const topologyHeight = 4;
+  const topologyHeight = 5;
   const innerHeight = Math.max(20, terminalHeight - bannerHeight - 1);
   const workflowHeight = Math.max(
     8,
@@ -108,6 +108,7 @@ function TuiApp({
   const [expandedDiffs, setExpandedDiffs] = useState<Set<number>>(new Set());
   const [diffFocus, setDiffFocus] = useState(0);
   const [diffOffsets, setDiffOffsets] = useState<number[]>([]);
+  const [diffMaxOffsets, setDiffMaxOffsets] = useState<number[]>([]);
   const [stateLog, setStateLog] = useState<
     Record<AgentState, ActivityItem[]>
   >({
@@ -318,9 +319,13 @@ function TuiApp({
       } else {
         if (key.upArrow || key.downArrow) {
           const delta = key.upArrow ? -1 : 1;
+          const max = diffMaxOffsets[diffFocus] ?? 0;
           setDiffOffsets((current) => {
             const next = [...current];
-            next[diffFocus] = Math.max(0, (next[diffFocus] ?? 0) + delta);
+            next[diffFocus] = Math.min(
+              max,
+              Math.max(0, (next[diffFocus] ?? 0) + delta),
+            );
             return next;
           });
           return;
@@ -423,12 +428,13 @@ function TuiApp({
 
         <Box flexDirection="column" width={rightWidth} height={innerHeight}>
           <Panel title="LLM CONTEXT" color="blue" height={llmHeight} width={rightWidth - 2} focused={activePanel === "right"}>
-            <Text color="white" wrap="truncate">model: {model} · mode: {mode} · task: {task || "(no task)"}</Text>
-            {snapshot.llm ? (
+            <Text color="white" wrap="truncate">model: {model} · mode: {mode}</Text>
+            <Text color="white" wrap="truncate">task: {task || "(no task)"}</Text>
+            {/* {snapshot.llm ? (
             <Text color="gray" wrap="truncate">
               {cliTruncate(snapshot.llm, rightWidth - 6, { position: "end" })}
               </Text>
-            ) : null}
+            ) : null} */}
           </Panel>
 
           <Panel title="TOKEN STATISTICS" color="blue" height={tokenHeight} width={rightWidth - 2} focused={activePanel === "right"}>
@@ -449,6 +455,7 @@ function TuiApp({
               offsets={diffOffsets}
               width={rightWidth - 6}
               height={diffHeight - 3}
+              onMaxOffsets={setDiffMaxOffsets}
             />
           </Panel>
 
@@ -733,6 +740,87 @@ function SummaryView({
   );
 }
 
+// function StringScrollable({
+//   lines,
+//   height,
+//   offset,
+//   width,
+// }: {
+//   lines: ColoredLine[];
+//   height: number;
+//   offset: number;
+//   width: number;
+// }) {
+//   const physical = lines.flatMap((line) => {
+//     if (line.wrap === false) {
+//       const single = line.text.replace(/\s+/g, " ");
+//       return [{ text: cliTruncate(single, width, { position: "end" }), color: line.color }];
+//     }
+//     return wrapAnsi(line.text, width, { hard: true })
+//       .split("\n")
+//       .map((text) => ({ text, color: line.color }));
+//   });
+//   const maxOffset = Math.max(0, physical.length - height);
+//   const clamped = Math.min(offset, maxOffset);
+//   const visible = physical.slice(clamped, clamped + height);
+
+//   return (
+//     <Box flexDirection="column">
+//       {visible.map((line, index) => (
+//         <Text key={index} color={line.color} wrap="truncate">
+//           {line.text}
+//         </Text>
+//       ))}
+//       <Text color="gray">
+//         {clamped + 1}-{Math.min(physical.length, clamped + height)} /{" "}
+//         {physical.length}
+//       </Text>
+//     </Box>
+//   );
+// }
+// function StringScrollable({
+//   lines,
+//   height,
+//   offset,
+//   width,
+// }: {
+//   lines: ColoredLine[];
+//   height: number;
+//   offset: number;
+//   width: number;
+// }) {
+//   // 预留 1 行给底部页码指示器 "1-26 / 26"
+//   const contentHeight = Math.max(1, height - 1);
+
+//   const physical = lines.flatMap((line) => {
+//     if (line.wrap === false) {
+//       const single = line.text.replace(/\s+/g, " ");
+//       return [{ text: cliTruncate(single, width, { position: "end" }), color: line.color }];
+//     }
+//     return wrapAnsi(line.text, width, { hard: true })
+//       .split("\n")
+//       .map((text) => ({ text, color: line.color }));
+//   });
+
+//   const maxOffset = Math.max(0, physical.length - contentHeight);
+//   const clamped = Math.min(offset, maxOffset);
+//   const visible = physical.slice(clamped, clamped + contentHeight);
+
+//   return (
+//     <Box flexDirection="column" height={height} overflow="hidden">
+//       {visible.map((line, index) => (
+//         <Text key={index} color={line.color} wrap="truncate-end">
+//           {line.text}
+//         </Text>
+//       ))}
+//       <Text color="gray">
+//         {clamped + 1}-{Math.min(physical.length, clamped + contentHeight)} /{" "}
+//         {physical.length}
+//       </Text>
+//     </Box>
+//   );
+// }
+
 function StringScrollable({
   lines,
   height,
@@ -744,6 +832,9 @@ function StringScrollable({
   offset: number;
   width: number;
 }) {
+  // 留出 1 行固定给底部的页码指示器
+  const contentHeight = Math.max(1, height - 1);
+
   const physical = lines.flatMap((line) => {
     if (line.wrap === false) {
       const single = line.text.replace(/\s+/g, " ");
@@ -753,19 +844,25 @@ function StringScrollable({
       .split("\n")
       .map((text) => ({ text, color: line.color }));
   });
-  const maxOffset = Math.max(0, physical.length - height);
+
+  const maxOffset = Math.max(0, physical.length - contentHeight);
   const clamped = Math.min(offset, maxOffset);
-  const visible = physical.slice(clamped, clamped + height);
+  const visible = physical.slice(clamped, clamped + contentHeight);
 
   return (
-    <Box flexDirection="column">
-      {visible.map((line, index) => (
-        <Text key={index} color={line.color} wrap="truncate">
-          {line.text}
-        </Text>
-      ))}
+    <Box flexDirection="column" height={height} justifyContent="space-between">
+      {/* 1. 内容容器：设置 flexGrow={1} 撑满剩余空间 */}
+      <Box flexDirection="column" flexGrow={1} overflow="hidden">
+        {visible.map((line, index) => (
+          <Text key={index} color={line.color} wrap="truncate-end">
+            {line.text}
+          </Text>
+        ))}
+      </Box>
+
+      {/* 2. 页码指示器：通过 space-between 被固定锁死在 Box 最底部 */}
       <Text color="gray">
-        {clamped + 1}-{Math.min(physical.length, clamped + height)} /{" "}
+        {clamped + 1}-{Math.min(physical.length, clamped + contentHeight)} /{" "}
         {physical.length}
       </Text>
     </Box>
@@ -813,6 +910,7 @@ function DiffViewer({
   offsets,
   width,
   height,
+  onMaxOffsets,
 }: {
   diffs: DiffView[];
   expandedDiffs: Set<number>;
@@ -820,6 +918,7 @@ function DiffViewer({
   offsets: number[];
   width: number;
   height: number;
+  onMaxOffsets: (offsets: number[]) => void;
 }) {
   if (diffs.length === 0) {
     return <Text color="gray">No file modifications yet</Text>;
@@ -836,6 +935,22 @@ function DiffViewer({
       ...diff.newText.split("\n").map((line) => ({ text: `+ ${line}`, color: "green" })),
     ];
   });
+  const maxes = diffs.map((diff, index) => {
+    const expanded = expandedDiffs.has(index);
+    if (!expanded) return 0;
+    const lines = [
+      `[-] ${diff.path}`,
+      ...diff.oldText.split("\n").map((line) => `- ${line}`),
+      ...diff.newText.split("\n").map((line) => `+ ${line}`),
+    ];
+    const physical = lines.flatMap((line) =>
+      wrapAnsi(line, width, { hard: true }).split("\n"),
+    ).length;
+    return Math.max(0, physical - viewport);
+  });
+  useEffect(() => {
+    onMaxOffsets(maxes);
+  }, [maxes.join("|"), onMaxOffsets]);
   const offset = offsets[focus] ?? 0;
   return (
     <StringScrollable
