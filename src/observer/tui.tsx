@@ -289,7 +289,7 @@ function TuiApp({
               tick={tick}
               workflowOffset={workflowOffset}
               height={workflowHeight - 3}
-              width={leftWidth - 4}
+              width={leftWidth - 6}
             />
           </Panel>
           <Panel
@@ -302,7 +302,7 @@ function TuiApp({
               summary={snapshot.summary ?? ""}
               offset={summaryOffset}
               height={summaryHeight - 3}
-              width={leftWidth - 4}
+              width={leftWidth - 6}
             />
           </Panel>
         </Box>
