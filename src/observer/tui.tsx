@@ -507,11 +507,22 @@ function WorkflowView({
   ];
 
   for (const item of visibleStates) {
+    const expandedState = item === state;
     logical.push({
-      text: `${item === state ? "▼" : "▷"} ${item}`,
+      text: `${expandedState ? "▼" : "▷"} ${item}`,
       color: item === state ? "green" : "cyan",
     });
     const entries = stateLog[item];
+    if (!expandedState) {
+      if (entries.length > 0) {
+        logical.push({
+          text: `    └─ ${entries.length} events`,
+          color: "gray",
+          wrap: false,
+        });
+      }
+      continue;
+    }
     for (let entryIndex = 0; entryIndex < entries.length; entryIndex += 1) {
       const entry = entries[entryIndex];
       const isLast = entryIndex === entries.length - 1;
@@ -519,7 +530,7 @@ function WorkflowView({
       const isLlmExpanded = entry.id && expandedLlmIds.has(entry.id);
       let entryText = entry.text;
       if (entry.kind === "tool_start" && entry.args) {
-        entryText = `${entry.text} (${entry.args})`;
+        entryText = `${entry.text} (${entry.args.replace(/\s+/g, " ")})`;
       } else if (entry.kind === "llm") {
         const content = entry.fullText ?? "";
         const needsExpand = content.includes("\n") || content.length > width;
@@ -655,7 +666,8 @@ function StringScrollable({
 }) {
   const physical = lines.flatMap((line) => {
     if (line.wrap === false) {
-      return [{ text: cliTruncate(line.text, width, { position: "end" }), color: line.color }];
+      const single = line.text.replace(/\s+/g, " ");
+      return [{ text: cliTruncate(single, width, { position: "end" }), color: line.color }];
     }
     return wrapAnsi(line.text, width, { hard: true })
       .split("\n")
@@ -668,7 +680,7 @@ function StringScrollable({
   return (
     <Box flexDirection="column">
       {visible.map((line, index) => (
-        <Text key={index} color={line.color}>
+        <Text key={index} color={line.color} wrap="truncate">
           {line.text}
         </Text>
       ))}
