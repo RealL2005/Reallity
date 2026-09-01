@@ -87,7 +87,6 @@ const PANEL_ORDER: PanelId[] = [
 export interface TuiHeights {
   bannerHeight: number;
   inputHeight: number;
-  hintHeight: number;
   innerHeight: number;
   topologyHeight: number;
   conversationHeight: number;
@@ -100,36 +99,32 @@ export interface TuiHeights {
 
 export function computeHeights(rows: number): TuiHeights {
   const terminalHeight = Math.max(16, rows - 2);
-  const bannerHeight = terminalHeight >= 30 ? 5 : 1;
-  const inputHeight = 1;
-  const hintHeight = 1;
+  const bannerHeight =
+    terminalHeight >= 30 ? 5 : terminalHeight >= 20 ? 1 : 0;
+  const inputHeight = terminalHeight >= 20 ? 4 : 3;
   const innerHeight = Math.max(
     8,
-    terminalHeight - bannerHeight - inputHeight - hintHeight,
+    terminalHeight - bannerHeight - inputHeight,
   );
-  const topologyHeight = Math.max(
+  const topologyHeight = Math.max(4, Math.min(5, Math.floor(innerHeight / 5)));
+  const conversationHeight = Math.max(
     3,
-    Math.min(4, Math.floor(innerHeight / 6)),
+    Math.min(5, Math.floor(innerHeight / 4)),
   );
   const summaryHeight = Math.max(
     3,
-    Math.min(6, Math.floor(innerHeight / 5)),
-  );
-  const conversationHeight = Math.max(
-    3,
-    Math.min(7, Math.floor(innerHeight / 4)),
+    Math.min(5, Math.floor(innerHeight / 4)),
   );
   const workflowHeight = Math.max(
     3,
     innerHeight - topologyHeight - conversationHeight - summaryHeight,
   );
-  const llmHeight = Math.max(3, Math.min(4, Math.floor(innerHeight / 6)));
-  const tokenHeight = Math.max(4, Math.min(6, Math.floor(innerHeight / 5)));
+  const llmHeight = Math.min(6, Math.max(4, Math.ceil(innerHeight / 3)));
+  const tokenHeight = Math.max(4, Math.min(5, Math.floor(innerHeight / 4)));
   const diffHeight = Math.max(3, innerHeight - llmHeight - tokenHeight);
   return {
     bannerHeight,
     inputHeight,
-    hintHeight,
     innerHeight,
     topologyHeight,
     conversationHeight,
@@ -161,7 +156,6 @@ export function TuiApp({
   const {
     bannerHeight,
     inputHeight,
-    hintHeight,
     innerHeight,
     topologyHeight,
     conversationHeight,
@@ -459,7 +453,7 @@ export function TuiApp({
       setCommand("");
       return;
     }
-    if (key.backspace) {
+    if (isEraseKey(input, key)) {
       setCommand((current) => current.slice(0, -1));
       return;
     }
@@ -582,11 +576,11 @@ export function TuiApp({
     <Box flexDirection="column" width={contentWidth} height={terminalHeight}>
       {bannerHeight >= 5 ? (
         <GradientBanner text="Reallity" font="Small" />
-      ) : (
+      ) : bannerHeight === 1 ? (
         <Text bold color="cyan">
           Reallity TUI
         </Text>
-      )}
+      ) : null}
       <Box flexDirection="row" height={innerHeight} width={contentWidth}>
         <Box flexDirection="column" width={leftWidth} height={innerHeight}>
           <Panel
@@ -693,21 +687,30 @@ export function TuiApp({
 
         </Box>
       </Box>
-      <Box flexDirection="row" width={contentWidth} height={inputHeight}>
-        <Text color={snapshot.running ? "yellow" : "green"}>
-          {snapshot.running ? "⏳ " : "> "}
-        </Text>
-        <Text color="white" wrap="truncate">{command}</Text>
-        <Text color="gray">{snapshot.running ? "" : "█"}</Text>
-        <Text color="gray" wrap="truncate">
-          {snapshot.running
-            ? "agent 运行中…"
-            : "[Enter] 发送 · [Tab] 面板 · /help"}
-        </Text>
+      <Box
+        flexDirection="column"
+        width={contentWidth}
+        height={inputHeight}
+        borderStyle="round"
+        borderColor={snapshot.running ? "yellow" : "green"}
+      >
+        <Box flexDirection="row">
+          <Text bold color={snapshot.running ? "yellow" : "green"}>
+            {snapshot.running ? "⏳ " : "> "}
+          </Text>
+          <Text color="white" bold wrap="truncate">
+            {command}
+          </Text>
+          {snapshot.running ? null : <Text color="gray">█</Text>}
+        </Box>
+        {inputHeight >= 4 ? (
+          <Text color="gray" wrap="truncate">
+            {snapshot.running
+              ? "agent 运行中…"
+              : "[Enter] 发送 · [Tab] 面板 · /task /run /help /save /clear"}
+          </Text>
+        ) : null}
       </Box>
-      <Text color="gray">
-        [Tab] Switch Panel · [↑/↓] Workflow · [PgUp/PgDn] Summary · [Enter] Send
-      </Text>
     </Box>
   );
 }
@@ -1053,13 +1056,12 @@ function renderTopologyLines(
       color: "yellow",
     });
   }
-  nodes.push({
-    text:
-      state === "rollback"
-        ? "[● ROLLBACK] ─▶ planner"
-        : "[rollback] ─▶ [planner]",
-    color: state === "rollback" ? "green" : "gray",
-  });
+  if (state === "rollback") {
+    nodes.push({
+      text: "[● ROLLBACK] ─▶ planner",
+      color: "green",
+    });
+  }
   return nodes;
 }
 
@@ -1334,6 +1336,18 @@ export type ParsedCommand =
   | { type: "save"; path?: string }
   | { type: "clear" }
   | { type: "unknown"; command: string };
+
+export function isEraseKey(
+  input: string,
+  key: { backspace?: boolean; delete?: boolean },
+): boolean {
+  return (
+    Boolean(key.backspace) ||
+    Boolean(key.delete) ||
+    input === "\u007f" ||
+    input === "\u0008"
+  );
+}
 
 export function parseCommand(input: string): ParsedCommand | null {
   const trimmed = input.trim();

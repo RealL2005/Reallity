@@ -4,6 +4,7 @@ import { render } from "ink";
 import {
   cleanLlmText,
   formatMarkdownTable,
+  isEraseKey,
   parseCommand,
   parseMarkdownTableData,
   buildConversation,
@@ -137,9 +138,10 @@ test("buildConversation pairs task start and end events", () => {
 test("computeHeights keeps the input bar visible across terminal sizes", () => {
   for (const rows of [16, 24, 30, 40, 60]) {
     const h = computeHeights(rows);
-    expect(h.inputHeight).toBe(1);
-    expect(h.hintHeight).toBe(1);
-    expect(h.bannerHeight).toBeGreaterThanOrEqual(1);
+    expect(h.inputHeight).toBeGreaterThanOrEqual(3);
+    expect(h.bannerHeight).toBeGreaterThanOrEqual(0);
+    expect(h.topologyHeight).toBeGreaterThanOrEqual(4);
+    expect(h.llmHeight).toBeGreaterThanOrEqual(4);
     const leftTotal =
       h.topologyHeight +
       h.conversationHeight +
@@ -151,6 +153,15 @@ test("computeHeights keeps the input bar visible across terminal sizes", () => {
     expect(h.workflowHeight).toBeGreaterThanOrEqual(3);
     expect(h.diffHeight).toBeGreaterThanOrEqual(3);
   }
+});
+
+test("isEraseKey recognizes backspace across key formats", () => {
+  expect(isEraseKey("", { backspace: true })).toBe(true);
+  expect(isEraseKey("", { delete: true })).toBe(true);
+  expect(isEraseKey("\u007f", {})).toBe(true);
+  expect(isEraseKey("\u0008", {})).toBe(true);
+  expect(isEraseKey("a", {})).toBe(false);
+  expect(isEraseKey("", {})).toBe(false);
 });
 
 class FakeStdout {
@@ -175,6 +186,55 @@ class FakeStdout {
   }
 }
 
+class FakeStdin {
+  isTTY = true;
+  isPaused(): boolean {
+    return false;
+  }
+  setRawMode(): this {
+    return this;
+  }
+  setEncoding(): this {
+    return this;
+  }
+  read(): null {
+    return null;
+  }
+  on(): this {
+    return this;
+  }
+  once(): this {
+    return this;
+  }
+  off(): this {
+    return this;
+  }
+  removeListener(): this {
+    return this;
+  }
+  addListener(): this {
+    return this;
+  }
+  pause(): this {
+    return this;
+  }
+  resume(): this {
+    return this;
+  }
+  unref(): this {
+    return this;
+  }
+  ref(): this {
+    return this;
+  }
+  destroy(): this {
+    return this;
+  }
+  emit(): boolean {
+    return false;
+  }
+}
+
 test("TUI renders the conversation input bar at 80x24", async () => {
   const bus = new EventBus();
   const stdout = new FakeStdout();
@@ -185,12 +245,16 @@ test("TUI renders the conversation input bar at 80x24", async () => {
       workspaceRoot: "/tmp",
       splashMs: 0,
     }),
-    { stdout: stdout as unknown as NodeJS.WriteStream },
+    {
+      stdout: stdout as unknown as NodeJS.WriteStream,
+      stdin: new FakeStdin() as unknown as NodeJS.ReadStream,
+    },
   );
   await new Promise((resolve) => setTimeout(resolve, 50));
 
   expect(stdout.output).toContain("Reallity");
   expect(stdout.output).toContain("> ");
+  expect(stdout.output).toContain("[Enter] 发送");
   expect(stdout.output).not.toContain("INTERACTIVE COMMAND INPUT");
 
   instance.unmount();
