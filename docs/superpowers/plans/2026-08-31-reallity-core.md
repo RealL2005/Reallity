@@ -8,7 +8,7 @@
 
 **Tech Stack:** TypeScript, Bun runtime/test runner, Zod, execa, Ink/React TUI, native Fetch API for OpenAI-compatible tool calling, Git CLI for checkpoints.
 
-**Spec:** `RealL (Reality) - Native Coding Agent Harness 完整架构与规范.md`
+**Spec:** `docs/architecture.md`
 
 ## Global Constraints
 
