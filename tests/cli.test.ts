@@ -75,6 +75,11 @@ test("parseCliArgs accepts session flags", () => {
   expect(parsed.noSession).toBe(true);
 });
 
+test("parseCliArgs accepts --max-interactions", () => {
+  const parsed = parseCliArgs(["--max-interactions", "60"]);
+  expect(parsed.maxInteractions).toBe(60);
+});
+
 test("parseCliArgs marks explicit workspace only when overridden", () => {
   expect(parseCliArgs(["--workspace", "/tmp/x"]).workspaceExplicit).toBe(true);
   expect(parseCliArgs([]).workspaceExplicit).toBe(false);

@@ -503,7 +503,7 @@ test("answer prefers tool output over partial executor content", async () => {
   const agent = new ReallityAgent({
     workspaceRoot: root,
     client,
-    maxRounds: 3,
+    maxInteractions: 2,
   });
 
   const result = await agent.run("统计代码行数");

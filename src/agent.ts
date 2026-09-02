@@ -35,7 +35,7 @@ export interface ReallityAgentOptions {
   eventBus?: EventBus;
   context?: ContextManager;
   runTests?: RunTests;
-  maxRounds?: number;
+  maxInteractions?: number;
   commitMessagePrefix?: string;
 }
 
@@ -70,7 +70,7 @@ export class ReallityAgent {
     this.workspaceRoot = options.workspaceRoot;
     this.client = options.client;
     this.eventBus = options.eventBus ?? new EventBus();
-    this.fsm = new FSMEngine({ maxRounds: options.maxRounds });
+    this.fsm = new FSMEngine({ maxInteractions: options.maxInteractions });
     this.breaker = new CircuitBreaker(3);
     this.checkpoint = new GitCheckpoint(options.workspaceRoot);
     this.context =
@@ -105,8 +105,6 @@ export class ReallityAgent {
 
     try {
       while (this.fsm.state !== "finish") {
-        this.fsm.recordRound();
-
         switch (this.fsm.state) {
           case "init":
             this.transition("planner");
@@ -148,7 +146,7 @@ export class ReallityAgent {
         state: this.fsm.state,
         message,
         answer,
-        rounds: this.fsm.roundCount,
+        rounds: this.fsm.interactionCount,
         tracePath: this.writeTrace(),
       };
     } catch (error) {
@@ -167,7 +165,7 @@ export class ReallityAgent {
           this.lastToolOutput ||
           this.lastLlmContent ||
           this.toolChainSummary,
-        rounds: this.fsm.roundCount,
+        rounds: this.fsm.interactionCount,
         tracePath: this.writeTrace(),
       };
     }
@@ -385,6 +383,7 @@ export class ReallityAgent {
       answer,
       verification: verification.output,
     });
+    this.fsm.recordInteraction();
     const response = await this.client.streamCompletion(
       [
         {
@@ -425,6 +424,7 @@ export class ReallityAgent {
   private async complete(
     mode: "planner" | "executor",
   ): Promise<LLMResponse> {
+    this.fsm.recordInteraction();
     const response = await this.client.streamCompletion(
       this.buildMessages(mode),
       mode === "planner" ? { tools: [] } : {},

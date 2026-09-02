@@ -51,11 +51,11 @@ export class CircuitBreaker {
 
 export class FSMEngine {
   state: AgentState = "init";
-  private rounds = 0;
-  readonly maxRounds: number;
+  private interactions = 0;
+  readonly maxInteractions: number;
 
-  constructor(options: { maxRounds?: number } = {}) {
-    this.maxRounds = options.maxRounds ?? 20;
+  constructor(options: { maxInteractions?: number } = {}) {
+    this.maxInteractions = options.maxInteractions ?? 40;
   }
 
   transition(next: AgentState): void {
@@ -69,16 +69,16 @@ export class FSMEngine {
     this.state = next;
   }
 
-  recordRound(): void {
-    this.rounds += 1;
-    if (this.rounds > this.maxRounds) {
+  recordInteraction(): void {
+    this.interactions += 1;
+    if (this.interactions > this.maxInteractions) {
       throw new CircuitBreakerError(
-        `round limit exceeded after ${this.maxRounds} interactions`,
+        `interaction limit exceeded after ${this.maxInteractions} interactions`,
       );
     }
   }
 
-  get roundCount(): number {
-    return this.rounds;
+  get interactionCount(): number {
+    return this.interactions;
   }
 }

@@ -26,6 +26,7 @@ export interface CliOptions {
   saveSessionPath?: string;
   noSession: boolean;
   workspaceExplicit: boolean;
+  maxInteractions?: number;
 }
 
 export function parseCliArgs(argv: string[]): CliOptions {
@@ -42,6 +43,7 @@ export function parseCliArgs(argv: string[]): CliOptions {
     showVersion: false,
     noSession: false,
     workspaceExplicit: Boolean(process.env.REALLITY_WORKSPACE?.trim()),
+    maxInteractions: Number(process.env.REALLITY_MAX_INTERACTIONS?.trim() ?? 0) || undefined,
   };
 
   for (let index = 0; index < argv.length; index += 1) {
@@ -74,6 +76,9 @@ export function parseCliArgs(argv: string[]): CliOptions {
         break;
       case "--no-session":
         options.noSession = true;
+        break;
+      case "--max-interactions":
+        options.maxInteractions = Number(argv[++index] ?? 0) || undefined;
         break;
       case "--help":
       case "-h":
@@ -169,6 +174,7 @@ export async function runCli(argv: string[] = process.argv.slice(2)): Promise<nu
     workspaceRoot: options.workspace,
     client,
     eventBus,
+    maxInteractions: options.maxInteractions,
   });
 
   if (options.mode === "web") {
@@ -205,6 +211,7 @@ export async function runCli(argv: string[] = process.argv.slice(2)): Promise<nu
           eventBus,
           savePath,
           model: options.model,
+          maxInteractions: options.maxInteractions,
         });
         session = loaded.session;
       } catch (error) {
@@ -222,6 +229,7 @@ export async function runCli(argv: string[] = process.argv.slice(2)): Promise<nu
         eventBus,
         savePath,
         model: options.model,
+        maxInteractions: options.maxInteractions,
       });
     }
 

@@ -36,14 +36,15 @@ test("FSMEngine allows verify to return to executor for repair", () => {
   expect(engine.state).toBe("executor");
 });
 
-test("FSMEngine enforces the 20-round interaction limit", () => {
-  const engine = new FSMEngine({ maxRounds: 20 });
+test("FSMEngine enforces the interaction limit", () => {
+  const engine = new FSMEngine({ maxInteractions: 3 });
 
-  for (let index = 0; index < 20; index += 1) {
-    engine.recordRound();
+  for (let index = 0; index < 3; index += 1) {
+    engine.recordInteraction();
   }
 
-  expect(() => engine.recordRound()).toThrow("round limit");
+  expect(() => engine.recordInteraction()).toThrow("interaction limit");
+  expect(engine.maxInteractions).toBe(3);
 });
 
 test("CircuitBreaker trips after three identical error signatures", () => {

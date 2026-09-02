@@ -8,5 +8,5 @@ export type AgentState =
   | "finish";
 
 export interface FSMOptions {
-  maxRounds?: number;
+  maxInteractions?: number;
 }
