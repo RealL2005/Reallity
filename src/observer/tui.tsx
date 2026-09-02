@@ -119,7 +119,7 @@ export function computeHeights(rows: number): TuiHeights {
     3,
     innerHeight - topologyHeight - conversationHeight - summaryHeight,
   );
-  const llmHeight = Math.min(6, Math.max(4, Math.ceil(innerHeight / 3)));
+  const llmHeight = Math.min(8, Math.max(6, Math.ceil(innerHeight / 3) + 1));
   const tokenHeight = Math.max(4, Math.min(5, Math.floor(innerHeight / 4)));
   const diffHeight = Math.max(3, innerHeight - llmHeight - tokenHeight);
   return {
@@ -438,6 +438,13 @@ export function TuiApp({
               break;
           }
         }
+      } else if (activePanel === "workflow" && lastLlmId) {
+        setExpandedLlmIds((current) => {
+          const next = new Set(current);
+          if (next.has(lastLlmId)) next.delete(lastLlmId);
+          else next.add(lastLlmId);
+          return next;
+        });
       }
       setCommand("");
       return;
@@ -653,12 +660,20 @@ export function TuiApp({
 
         <Box flexDirection="column" width={rightWidth} height={innerHeight}>
           <Panel title="LLM CONTEXT" color="blue" height={llmHeight} width={rightWidth - 2} focused={activePanel === "llm"}>
-            <Text color="white" wrap="truncate">model: {model} · mode: {mode}</Text>
-            <Text color="white" wrap="truncate">task: {task || "(no task)"}</Text>
+            <Text color="white" wrap="truncate">
+              model: {model} · mode: {mode} · task: {task || "(no task)"}
+            </Text>
             <Text color="white" wrap="truncate">
               workspace: {workspaceRoot || "(default)"}
+              {resumed ? " · resumed" : ""}
             </Text>
-            {resumed ? <Text color="yellow">resumed session</Text> : null}
+            <LlmContextView
+              content={snapshot.llm}
+              expanded
+              width={rightWidth - 6}
+              height={Math.max(1, llmHeight - 5)}
+              offset={llmOffset}
+            />
           </Panel>
 
           <Panel title="TOKEN STATISTICS" color="blue" height={tokenHeight} width={rightWidth - 2} focused={activePanel === "token"}>
