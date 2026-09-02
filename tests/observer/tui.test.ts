@@ -4,6 +4,7 @@ import { render } from "ink";
 import {
   cleanLlmText,
   formatMarkdownTable,
+  bounceStep,
   isEraseKey,
   parseCommand,
   parseMarkdownTableData,
@@ -197,6 +198,14 @@ test("splitLeadingLine separates batched input at line breaks", () => {
     leading: "hello",
     hasBreak: false,
   });
+});
+
+test("bounceStep bounces within bounds", () => {
+  expect(bounceStep(0, 1, 10)).toEqual([2, 1]);
+  expect(bounceStep(10, -1, 10)).toEqual([8, -1]);
+  expect(bounceStep(9, 1, 10)).toEqual([10, -1]);
+  expect(bounceStep(1, -1, 10)).toEqual([0, 1]);
+  expect(bounceStep(5, 1, 0)).toEqual([0, 1]);
 });
 
 class FakeStdout {

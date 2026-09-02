@@ -212,6 +212,7 @@ export function TuiApp({
   const [llmOffset, setLlmOffset] = useState(0);
   const [workflowOffset, setWorkflowOffset] = useState(0);
   const [conversationOffset, setConversationOffset] = useState(0);
+  const [bannerPos, setBannerPos] = useState({ x: 0, dir: 1 as 1 | -1 });
   const [expandedToolIds, setExpandedToolIds] = useState<Set<string>>(new Set());
   const [expandedLlmIds, setExpandedLlmIds] = useState<Set<string>>(new Set());
   const [lastToolId, setLastToolId] = useState<string | null>(null);
@@ -581,6 +582,28 @@ export function TuiApp({
     return Math.max(0, physicalCount - Math.max(1, conversationHeight - 4));
   }, [conversation, conversationHeight]);
 
+  const bannerWidth = useMemo(
+    () =>
+      renderBanner("Reallity", "Small")
+        .split("\n")
+        .reduce((widest, line) => Math.max(widest, line.length), 0),
+    [],
+  );
+  const maxBannerShift = Math.max(0, contentWidth - bannerWidth - 2);
+
+  useEffect(() => {
+    if (!(bannerHeight >= 5) || maxBannerShift <= 0) {
+      return;
+    }
+    const timer = setInterval(() => {
+      setBannerPos(({ x, dir }) => {
+        const [nextX, nextDir] = bounceStep(x, dir, maxBannerShift);
+        return { x: nextX, dir: nextDir };
+      });
+    }, 120);
+    return () => clearInterval(timer);
+  }, [bannerHeight, maxBannerShift]);
+
   if (showSplash) {
     return (
       <Box flexDirection="column" paddingX={1}>
@@ -593,7 +616,9 @@ export function TuiApp({
   return (
     <Box flexDirection="column" width={contentWidth} height={terminalHeight}>
       {bannerHeight >= 5 ? (
-        <GradientBanner text="Reallity" font="Small" />
+        <Box paddingLeft={bannerPos.x}>
+          <GradientBanner text="Reallity" font="Small" />
+        </Box>
       ) : bannerHeight === 1 ? (
         <Text bold color="cyan">
           Reallity TUI
@@ -1414,6 +1439,25 @@ export function splitLeadingLine(input: string): {
     leading: match?.[1] ?? input,
     hasBreak: (match?.[2] ?? "") !== "",
   };
+}
+
+export function bounceStep(
+  x: number,
+  dir: 1 | -1,
+  max: number,
+): [number, 1 | -1] {
+  if (max <= 0) {
+    return [0, 1];
+  }
+  const step = 2;
+  const next = x + dir * step;
+  if (next >= max) {
+    return [max, -1];
+  }
+  if (next <= 0) {
+    return [0, 1];
+  }
+  return [next, dir];
 }
 
 export function parseCommand(input: string): ParsedCommand | null {
