@@ -590,9 +590,10 @@ export function TuiApp({
     [],
   );
   const maxBannerShift = Math.max(0, contentWidth - bannerWidth - 2);
+  const animateBanner = process.env.REALLITY_ANIMATE_BANNER === "1";
 
   useEffect(() => {
-    if (!(bannerHeight >= 5) || maxBannerShift <= 0) {
+    if (!animateBanner || !(bannerHeight >= 5) || maxBannerShift <= 0) {
       return;
     }
     const timer = setInterval(() => {
@@ -600,9 +601,9 @@ export function TuiApp({
         const [nextX, nextDir] = bounceStep(x, dir, maxBannerShift);
         return { x: nextX, dir: nextDir };
       });
-    }, 120);
+    }, 500);
     return () => clearInterval(timer);
-  }, [bannerHeight, maxBannerShift]);
+  }, [animateBanner, bannerHeight, maxBannerShift]);
 
   if (showSplash) {
     return (
