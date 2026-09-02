@@ -11,6 +11,16 @@ export interface CheckpointSnapshot {
   head: string;
   clean: boolean;
   pendingDiff?: string;
+  pendingUntracked: string[];
+}
+
+export function parseUntrackedFiles(status: string): string[] {
+  return status
+    .split("\n")
+    .map((line) => line.trim())
+    .filter((line) => line.startsWith("??"))
+    .map((line) => line.slice(2).trim())
+    .filter(Boolean);
 }
 
 export class GitCheckpoint {
@@ -20,12 +30,14 @@ export class GitCheckpoint {
 
   async capture(): Promise<CheckpointSnapshot> {
     const head = await this.git("rev-parse", "HEAD");
-    const clean = await this.isClean();
+    const status = await this.status();
+    const clean = status.trim().length === 0;
     const pendingDiff = clean ? undefined : await this.diff();
     const snapshot: CheckpointSnapshot = {
       head: head.trim(),
       clean,
       pendingDiff,
+      pendingUntracked: parseUntrackedFiles(status),
     };
     this.lastSnapshot = snapshot;
     return snapshot;

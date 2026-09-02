@@ -382,6 +382,129 @@ test("agent explores without changes past the verify interval", async () => {
   expect(bus.history.filter((event) => event.type === "verification").length).toBe(1);
 });
 
+test("writable task in a dirty workspace does not force verify during reads", async () => {
+  const bus = new EventBus();
+  await writeFile(path.join(root, "untracked-pre.txt"), "pre-existing\n");
+  const readResponse = {
+    content: "",
+    toolCalls: [
+      {
+        id: "call_read",
+        type: "function" as const,
+        function: { name: "read_file", arguments: '{"path":"file.txt"}' },
+      },
+    ],
+    finishReason: "tool_calls" as const,
+    usage: usage(),
+  };
+  const client = new ScriptedClient([
+    {
+      content: "- [ ] inspect file",
+      toolCalls: [],
+      finishReason: "stop",
+      usage: usage(),
+    },
+    ...Array.from({ length: 10 }, () => readResponse),
+    {
+      content: "已定位，未改动",
+      toolCalls: [],
+      finishReason: "stop",
+      usage: usage(),
+    },
+    {
+      content: '{"approved": true, "feedback": "ok"}',
+      toolCalls: [],
+      finishReason: "stop",
+      usage: usage(),
+    },
+  ]);
+  const agent = new ReallityAgent({
+    workspaceRoot: root,
+    client,
+    eventBus: bus,
+    runTests: async (): Promise<VerificationResult> => ({
+      passed: true,
+      exitCode: 0,
+      output: "1 pass\n0 fail",
+      diagnostics: [],
+    }),
+  });
+
+  const result = await agent.run("修改 file.txt 中的内容");
+
+  expect(result.success).toBe(true);
+  expect(bus.history.filter((event) => event.type === "tool_start").length).toBe(10);
+  expect(bus.history.filter((event) => event.type === "verification").length).toBe(1);
+});
+
+test("an early change verifies once and later reads do not force verify again", async () => {
+  const bus = new EventBus();
+  const editResponse = {
+    content: "",
+    toolCalls: [
+      {
+        id: "call_edit",
+        type: "function" as const,
+        function: {
+          name: "edit_file",
+          arguments:
+            '{"path":"file.txt","old_str":"hello","new_str":"hello world"}',
+        },
+      },
+    ],
+    finishReason: "tool_calls" as const,
+    usage: usage(),
+  };
+  const readResponse = {
+    content: "",
+    toolCalls: [
+      {
+        id: "call_read",
+        type: "function" as const,
+        function: { name: "read_file", arguments: '{"path":"file.txt"}' },
+      },
+    ],
+    finishReason: "tool_calls" as const,
+    usage: usage(),
+  };
+  const client = new ScriptedClient([
+    { content: "- [ ] fix", toolCalls: [], finishReason: "stop", usage: usage() },
+    editResponse,
+    ...Array.from({ length: 5 }, () => readResponse),
+    {
+      content: '{"approved": false, "feedback": "继续"}',
+      toolCalls: [],
+      finishReason: "stop",
+      usage: usage(),
+    },
+    ...Array.from({ length: 6 }, () => readResponse),
+    { content: "完成", toolCalls: [], finishReason: "stop", usage: usage() },
+    {
+      content: '{"approved": true, "feedback": "ok"}',
+      toolCalls: [],
+      finishReason: "stop",
+      usage: usage(),
+    },
+  ]);
+  const agent = new ReallityAgent({
+    workspaceRoot: root,
+    client,
+    eventBus: bus,
+    runTests: async (): Promise<VerificationResult> => ({
+      passed: true,
+      exitCode: 0,
+      output: "1 pass\n0 fail",
+      diagnostics: [],
+    }),
+  });
+
+  const result = await agent.run("修改 file.txt 中的内容");
+
+  expect(result.success).toBe(true);
+  expect(bus.history.filter((event) => event.type === "tool_start").length).toBe(12);
+  expect(bus.history.filter((event) => event.type === "verification").length).toBe(2);
+});
+
 test("looksLikeReadOnlyTask classifies inspection requests as read-only", () => {
   expect(looksLikeReadOnlyTask("统计当前项目有效代码行数")).toBe(true);
   expect(looksLikeReadOnlyTask("解释 src/agent.ts 的流程")).toBe(true);

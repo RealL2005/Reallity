@@ -4,7 +4,10 @@ import { execFile } from "node:child_process";
 import { promisify } from "node:util";
 import { tmpdir } from "node:os";
 import path from "node:path";
-import { GitCheckpoint } from "../../src/governance/checkpoint.ts";
+import {
+  GitCheckpoint,
+  parseUntrackedFiles,
+} from "../../src/governance/checkpoint.ts";
 
 const execFileAsync = promisify(execFile);
 
@@ -112,4 +115,21 @@ test("GitCheckpoint rollback on a clean capture discards agent changes", async (
   expect(await readFile(path.join(root, "tracked.txt"), "utf8")).toBe(
     "original\n",
   );
+});
+
+test("GitCheckpoint captures pre-existing untracked files", async () => {
+  const checkpoint = new GitCheckpoint(root);
+  await writeFile(path.join(root, "untracked.txt"), "new\n");
+
+  const snapshot = await checkpoint.capture();
+
+  expect(snapshot.clean).toBe(false);
+  expect(snapshot.pendingUntracked).toEqual(["untracked.txt"]);
+});
+
+test("parseUntrackedFiles extracts untracked paths from porcelain status", () => {
+  expect(
+    parseUntrackedFiles(" M src/a.ts\n?? untracked.txt\n?? dir/file.ts\n"),
+  ).toEqual(["untracked.txt", "dir/file.ts"]);
+  expect(parseUntrackedFiles("")).toEqual([]);
 });

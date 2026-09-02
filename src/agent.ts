@@ -8,7 +8,10 @@ import { executeTool } from "./tools/executor.ts";
 import type { ToolResult } from "./tools/executor.ts";
 import { isMutatingBashCommand } from "./tools/guards.ts";
 import { EventBus } from "./observer/events.ts";
-import { GitCheckpoint } from "./governance/checkpoint.ts";
+import {
+  GitCheckpoint,
+  parseUntrackedFiles,
+} from "./governance/checkpoint.ts";
 import type { CheckpointSnapshot } from "./governance/checkpoint.ts";
 import {
   buildReviewPrompt,
@@ -67,6 +70,7 @@ export class ReallityAgent {
   private lastToolOutput = "";
   private checkpointSnapshot?: CheckpointSnapshot;
   private readonly toolRoundsBeforeVerify: number;
+  private lastVerifyState?: { diff: string; untracked: string[] };
 
   constructor(options: ReallityAgentOptions) {
     this.workspaceRoot = options.workspaceRoot;
@@ -99,6 +103,10 @@ export class ReallityAgent {
     this.context.appendUser(task);
     const snapshot = await this.checkpoint.capture();
     this.checkpointSnapshot = snapshot;
+    this.lastVerifyState = {
+      diff: snapshot.pendingDiff ?? "",
+      untracked: snapshot.pendingUntracked,
+    };
     this.emit({
       type: "checkpoint",
       head: snapshot.head,
@@ -259,10 +267,38 @@ export class ReallityAgent {
 
     if (this.toolRounds >= this.toolRoundsBeforeVerify && !this.readOnly) {
       this.toolRounds = 0;
-      if (await this.checkpoint.hasChanges()) {
+      if (await this.hasChangesSinceLastVerify()) {
         this.transition("verify");
       }
     }
+  }
+
+  private async hasChangesSinceLastVerify(): Promise<boolean> {
+    const baseline = this.lastVerifyState;
+    if (!baseline) {
+      return false;
+    }
+    const [diff, status] = await Promise.all([
+      this.checkpoint.diff(),
+      this.checkpoint.status(),
+    ]);
+    const agentDiff = subtractPreExistingDiff(diff, baseline.diff);
+    const untracked = parseUntrackedFiles(status);
+    const newUntracked = untracked.filter(
+      (file) => !baseline.untracked.includes(file),
+    );
+    return agentDiff.trim().length > 0 || newUntracked.length > 0;
+  }
+
+  private async refreshVerifyBaseline(): Promise<void> {
+    const [diff, status] = await Promise.all([
+      this.checkpoint.diff(),
+      this.checkpoint.status(),
+    ]);
+    this.lastVerifyState = {
+      diff,
+      untracked: parseUntrackedFiles(status),
+    };
   }
 
   private async executeCall(
@@ -332,6 +368,7 @@ export class ReallityAgent {
       feedback: review?.feedback ?? "",
       timestamp: Date.now(),
     });
+    await this.refreshVerifyBaseline();
     if (review?.approved) {
       this.transition("commit");
       return;
