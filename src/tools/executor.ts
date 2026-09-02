@@ -37,6 +37,7 @@ export interface ToolResult {
   output: string;
   success: boolean;
   error?: string;
+  code?: string;
   diff?: {
     path: string;
     oldText: string;
@@ -82,7 +83,12 @@ export async function executeTool(
     };
   } catch (error) {
     const message = error instanceof Error ? error.message : String(error);
-    return failure(call, name, message);
+    return failure(
+      call,
+      name,
+      message,
+      error instanceof AgentError ? error.code : undefined,
+    );
   }
 }
 
@@ -283,6 +289,7 @@ function failure(
   call: ToolCall,
   name: string,
   error: string,
+  code?: string,
 ): ToolResult {
   return {
     toolCallId: call.id,
@@ -290,6 +297,7 @@ function failure(
     output: "",
     success: false,
     error,
+    code,
     diagnostic: parseDiagnostic(error),
   };
 }

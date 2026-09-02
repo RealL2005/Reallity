@@ -26,6 +26,7 @@ export type AgentEvent =
       success: boolean;
       output?: string;
       error?: string;
+      code?: string;
       diff?: {
         path: string;
         oldText: string;

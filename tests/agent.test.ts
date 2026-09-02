@@ -687,6 +687,48 @@ test("different tool calls do not trip stagnation", async () => {
   expect(bus.history.filter((event) => event.type === "tool_start").length).toBe(3);
 });
 
+test("bash nonzero exits are probes and do not trip the breaker", async () => {
+  const bus = new EventBus();
+  const failResponse = {
+    content: "",
+    toolCalls: [
+      {
+        id: "call_bash",
+        type: "function" as const,
+        function: {
+          name: "bash",
+          arguments: JSON.stringify({ command: "exit 1" }),
+        },
+      },
+    ],
+    finishReason: "tool_calls" as const,
+    usage: usage(),
+  };
+  const client = new ScriptedClient([
+    { content: "- [ ] probe", toolCalls: [], finishReason: "stop", usage: usage() },
+    ...Array.from({ length: 4 }, () => failResponse),
+    { content: "done", toolCalls: [], finishReason: "stop", usage: usage() },
+    {
+      content: '{"approved": true, "feedback": "ok"}',
+      toolCalls: [],
+      finishReason: "stop",
+      usage: usage(),
+    },
+  ]);
+  const agent = new ReallityAgent({
+    workspaceRoot: root,
+    client,
+    eventBus: bus,
+    stagnationLimit: 100,
+  });
+
+  const result = await agent.run("do something");
+
+  expect(result.success).toBe(true);
+  expect(bus.history.some((event) => event.type === "rollback")).toBe(false);
+  expect(bus.history.filter((event) => event.type === "tool_start").length).toBe(4);
+});
+
 test("looksLikeReadOnlyTask classifies inspection requests as read-only", () => {
   expect(looksLikeReadOnlyTask("统计当前项目有效代码行数")).toBe(true);
   expect(looksLikeReadOnlyTask("解释 src/agent.ts 的流程")).toBe(true);

@@ -373,7 +373,9 @@ export function TuiApp({
         }
         if (event.type === "tool_result") {
           setLastToolId(`${event.tool}-${event.timestamp}`);
-          if (!event.success) setErrorCount((current) => current + 1);
+          if (!event.success && event.code !== "BASH_NONZERO_EXIT") {
+            setErrorCount((current) => current + 1);
+          }
         }
         if (event.type === "error") setErrorCount((current) => current + 1);
 

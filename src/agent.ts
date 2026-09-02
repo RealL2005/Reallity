@@ -273,6 +273,7 @@ export class ReallityAgent {
         success: result.success,
         output: result.output,
         error: result.error,
+        code: result.code,
         diff: result.diff,
         timestamp: Date.now(),
       });
@@ -293,7 +294,7 @@ export class ReallityAgent {
         this.context.addModifiedFile(extractPath(call.function.arguments));
       }
 
-      if (!result.success) {
+      if (!result.success && result.code !== "BASH_NONZERO_EXIT") {
         this.breaker.recordError(
           `${call.function.name}: ${result.error ?? "unknown error"}`,
         );

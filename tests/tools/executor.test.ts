@@ -150,6 +150,14 @@ test("bash runs a command with non-interactive env", async () => {
   expect(result.output).toContain("true-cat");
 });
 
+test("bash nonzero exit is reported with the BASH_NONZERO_EXIT code", async () => {
+  const result = await run("bash", { command: "exit 3" });
+
+  expect(result.success).toBe(false);
+  expect(result.code).toBe("BASH_NONZERO_EXIT");
+  expect(result.error).toContain("exited with code 3");
+});
+
 test("bash rejects high-risk commands", async () => {
   const result = await run("bash", { command: "rm -rf /" });
 
