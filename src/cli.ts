@@ -24,6 +24,8 @@ export interface CliOptions {
   showVersion: boolean;
   sessionPath?: string;
   saveSessionPath?: string;
+  sessionRequested: boolean;
+  saveSessionRequested: boolean;
   noSession: boolean;
   workspaceExplicit: boolean;
   maxInteractions?: number;
@@ -43,6 +45,8 @@ export function parseCliArgs(argv: string[]): CliOptions {
     showHelp: false,
     showVersion: false,
     noSession: false,
+    sessionRequested: false,
+    saveSessionRequested: false,
     workspaceExplicit: Boolean(process.env.REALLITY_WORKSPACE?.trim()),
     maxInteractions: Number(process.env.REALLITY_MAX_INTERACTIONS?.trim() ?? 0) || undefined,
     toolRoundsBeforeVerify:
@@ -74,9 +78,11 @@ export function parseCliArgs(argv: string[]): CliOptions {
         break;
       case "--session":
         options.sessionPath = argv[++index] ?? undefined;
+        options.sessionRequested = true;
         break;
       case "--save-session":
         options.saveSessionPath = argv[++index] ?? undefined;
+        options.saveSessionRequested = true;
         break;
       case "--no-session":
         options.noSession = true;
@@ -110,10 +116,12 @@ export interface ResolvedSessionPaths {
 export function resolveSessionPaths(options: {
   sessionPath?: string;
   saveSessionPath?: string;
+  sessionRequested: boolean;
+  saveSessionRequested: boolean;
   noSession: boolean;
   workspace: string;
 }): ResolvedSessionPaths {
-  const defaultSavePath = path.join(
+  const defaultPath = path.join(
     path.resolve(options.workspace),
     ".reallity",
     "session.json",
@@ -122,24 +130,42 @@ export function resolveSessionPaths(options: {
 
   if (options.noSession) {
     return {
-      loadPath: options.sessionPath,
-      savePath: options.saveSessionPath ?? options.sessionPath,
+      loadPath: options.sessionRequested
+        ? options.sessionPath ?? defaultPath
+        : undefined,
+      savePath: options.saveSessionRequested
+        ? options.saveSessionPath ?? defaultPath
+        : options.sessionRequested
+          ? options.sessionPath ?? defaultPath
+          : undefined,
     };
   }
 
-  const loadPath =
-    options.sessionPath ??
-    (envSession && existsSync(envSession) ? envSession : undefined) ??
-    (!options.saveSessionPath && existsSync(defaultSavePath)
-      ? defaultSavePath
-      : undefined);
-  const savePath =
-    options.saveSessionPath ??
-    options.sessionPath ??
-    envSession ??
-    defaultSavePath;
+  if (options.sessionRequested) {
+    const resumePath = options.sessionPath ?? defaultPath;
+    return {
+      loadPath: resumePath,
+      savePath: options.saveSessionRequested
+        ? options.saveSessionPath ?? defaultPath
+        : resumePath,
+    };
+  }
 
-  return { loadPath, savePath };
+  if (options.saveSessionRequested) {
+    return {
+      loadPath: undefined,
+      savePath: options.saveSessionPath ?? defaultPath,
+    };
+  }
+
+  if (envSession) {
+    return {
+      loadPath: existsSync(envSession) ? envSession : undefined,
+      savePath: envSession,
+    };
+  }
+
+  return { loadPath: undefined, savePath: undefined };
 }
 
 export async function runCli(argv: string[] = process.argv.slice(2)): Promise<number> {
@@ -265,10 +291,17 @@ export async function runCli(argv: string[] = process.argv.slice(2)): Promise<nu
       onSave: (sessionPath) => {
         void (async () => {
           try {
-            await session.save(sessionPath);
+            const targetPath =
+              sessionPath ??
+              path.join(
+                path.resolve(session.workspaceRoot),
+                ".reallity",
+                "session.json",
+              );
+            await session.save(targetPath);
             eventBus.emit({
               type: "notice",
-              message: `Session saved to ${sessionPath ?? session.savePath}`,
+              message: `Session saved to ${targetPath}`,
               timestamp: Date.now(),
             });
           } catch (error) {
@@ -325,6 +358,11 @@ const HELP_TEXT = [
   "  --model       model name (env: REALLITY_MODEL)",
   "  --base-url    OpenAI-compatible API base URL (env: REALLITY_BASE_URL)",
   "  --port        trace WebUI port (default: 3000)",
+  "  --session [path]       resume a conversation (default: .reallity/session.json)",
+  "  --save-session [path]  auto-save this conversation (default: .reallity/session.json)",
+  "  --no-session           start fresh without any persistence",
+  "  --max-interactions N   LLM interaction limit (default: 40)",
+  "  --tool-rounds-before-verify N   force verify interval (default: 6)",
   "  -h, --help    show help",
   "  -V, --version show version",
 ].join("\n");

@@ -13,7 +13,7 @@ Headless：bun run src/cli.ts --mode headless --task "你的编程任务"
 说明：本项目不依赖任何 Agent 框架/SDK，也不使用服务端托管代码执行。核心循环、上下文管理、工具定义与执行、模型输出解析、终止条件与错误处理均为手写实现。凭据只通过环境变量提供。
 
 运行模式：
-1. TUI：--mode tui，终端实时显示 FSM 状态、LLM 内容、工具调用、红绿 Diff 与 Token/Cache 指标。多轮对话：TUI 内直接输入即可继续对话，上下文自动延续；会话默认保存到 .reallity/session.json，再次启动时若存在会自动恢复，也可用 --session 显式指定。
+1. TUI：--mode tui，终端实时显示 FSM 状态、LLM 内容、工具调用、红绿 Diff 与 Token/Cache 指标。多轮对话：TUI 内直接输入即可继续对话，上下文自动延续（默认开启新对话、不自动落盘）；用 --session 恢复之前的会话，/save 或 --save-session 保存（默认路径 .reallity/session.json）。
 2. WebUI：--mode web，启动本地 trace 查看器，浏览器打开 http://127.0.0.1:3000 查看 FSM DAG、Token/Cache 审计、事件时间线和 Diff。
 3. Headless：--mode headless，适合脚本与测试。
 
