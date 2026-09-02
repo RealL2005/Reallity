@@ -23,6 +23,7 @@ export interface SessionOptions {
   model?: string;
   maxHistoryMessages?: number;
   maxInteractions?: number;
+  toolRoundsBeforeVerify?: number;
 }
 
 export interface SessionTaskRecord {
@@ -121,6 +122,7 @@ export class Session {
   private readonly client: LLMClientLike;
   private readonly model?: string;
   private readonly maxInteractions?: number;
+  private readonly toolRoundsBeforeVerify?: number;
   private running = false;
   private readonly createdAt: number;
   private updatedAt: number;
@@ -138,6 +140,7 @@ export class Session {
     this.savePath = options.savePath;
     this.model = options.model;
     this.maxInteractions = options.maxInteractions;
+    this.toolRoundsBeforeVerify = options.toolRoundsBeforeVerify;
     this.createdAt = Date.now();
     this.updatedAt = this.createdAt;
   }
@@ -173,6 +176,7 @@ export class Session {
         eventBus: this.bus,
         context: this.context,
         maxInteractions: this.maxInteractions,
+        toolRoundsBeforeVerify: this.toolRoundsBeforeVerify,
       });
       result = await agent.run(task);
     } catch (error) {

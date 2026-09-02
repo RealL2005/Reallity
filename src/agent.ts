@@ -36,6 +36,7 @@ export interface ReallityAgentOptions {
   context?: ContextManager;
   runTests?: RunTests;
   maxInteractions?: number;
+  toolRoundsBeforeVerify?: number;
   commitMessagePrefix?: string;
 }
 
@@ -65,12 +66,14 @@ export class ReallityAgent {
   private toolChainSummary = "";
   private lastToolOutput = "";
   private checkpointSnapshot?: CheckpointSnapshot;
+  private readonly toolRoundsBeforeVerify: number;
 
   constructor(options: ReallityAgentOptions) {
     this.workspaceRoot = options.workspaceRoot;
     this.client = options.client;
     this.eventBus = options.eventBus ?? new EventBus();
     this.fsm = new FSMEngine({ maxInteractions: options.maxInteractions });
+    this.toolRoundsBeforeVerify = options.toolRoundsBeforeVerify ?? 6;
     this.breaker = new CircuitBreaker(3);
     this.checkpoint = new GitCheckpoint(options.workspaceRoot);
     this.context =
@@ -254,9 +257,11 @@ export class ReallityAgent {
       }
     }
 
-    if (this.toolRounds >= 6 && !this.readOnly) {
+    if (this.toolRounds >= this.toolRoundsBeforeVerify && !this.readOnly) {
       this.toolRounds = 0;
-      this.transition("verify");
+      if (await this.checkpoint.hasChanges()) {
+        this.transition("verify");
+      }
     }
   }
 

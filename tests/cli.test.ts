@@ -80,6 +80,11 @@ test("parseCliArgs accepts --max-interactions", () => {
   expect(parsed.maxInteractions).toBe(60);
 });
 
+test("parseCliArgs accepts --tool-rounds-before-verify", () => {
+  const parsed = parseCliArgs(["--tool-rounds-before-verify", "12"]);
+  expect(parsed.toolRoundsBeforeVerify).toBe(12);
+});
+
 test("parseCliArgs marks explicit workspace only when overridden", () => {
   expect(parseCliArgs(["--workspace", "/tmp/x"]).workspaceExplicit).toBe(true);
   expect(parseCliArgs([]).workspaceExplicit).toBe(false);

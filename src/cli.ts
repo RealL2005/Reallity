@@ -27,6 +27,7 @@ export interface CliOptions {
   noSession: boolean;
   workspaceExplicit: boolean;
   maxInteractions?: number;
+  toolRoundsBeforeVerify?: number;
 }
 
 export function parseCliArgs(argv: string[]): CliOptions {
@@ -44,6 +45,9 @@ export function parseCliArgs(argv: string[]): CliOptions {
     noSession: false,
     workspaceExplicit: Boolean(process.env.REALLITY_WORKSPACE?.trim()),
     maxInteractions: Number(process.env.REALLITY_MAX_INTERACTIONS?.trim() ?? 0) || undefined,
+    toolRoundsBeforeVerify:
+      Number(process.env.REALLITY_TOOL_ROUNDS_BEFORE_VERIFY?.trim() ?? 0) ||
+      undefined,
   };
 
   for (let index = 0; index < argv.length; index += 1) {
@@ -79,6 +83,10 @@ export function parseCliArgs(argv: string[]): CliOptions {
         break;
       case "--max-interactions":
         options.maxInteractions = Number(argv[++index] ?? 0) || undefined;
+        break;
+      case "--tool-rounds-before-verify":
+        options.toolRoundsBeforeVerify =
+          Number(argv[++index] ?? 0) || undefined;
         break;
       case "--help":
       case "-h":
@@ -175,6 +183,7 @@ export async function runCli(argv: string[] = process.argv.slice(2)): Promise<nu
     client,
     eventBus,
     maxInteractions: options.maxInteractions,
+    toolRoundsBeforeVerify: options.toolRoundsBeforeVerify,
   });
 
   if (options.mode === "web") {
@@ -212,6 +221,7 @@ export async function runCli(argv: string[] = process.argv.slice(2)): Promise<nu
           savePath,
           model: options.model,
           maxInteractions: options.maxInteractions,
+          toolRoundsBeforeVerify: options.toolRoundsBeforeVerify,
         });
         session = loaded.session;
       } catch (error) {
@@ -230,6 +240,7 @@ export async function runCli(argv: string[] = process.argv.slice(2)): Promise<nu
         savePath,
         model: options.model,
         maxInteractions: options.maxInteractions,
+        toolRoundsBeforeVerify: options.toolRoundsBeforeVerify,
       });
     }
 

@@ -271,7 +271,7 @@ test("agent repairs a failing verification before committing", async () => {
   expect(log.stdout).toContain("agent:");
 });
 
-test("agent forces verify after repeated tool-calling rounds", async () => {
+test("agent forces verify after repeated tool-calling rounds with changes", async () => {
   const bus = new EventBus();
   const toolResponse = {
     content: "",
@@ -279,7 +279,10 @@ test("agent forces verify after repeated tool-calling rounds", async () => {
       {
         id: "call_read",
         type: "function" as const,
-        function: { name: "read_file", arguments: '{"path":"file.txt"}' },
+        function: {
+          name: "bash",
+          arguments: JSON.stringify({ command: "echo x >> file.txt" }),
+        },
       },
     ],
     finishReason: "tool_calls",
@@ -322,6 +325,61 @@ test("agent forces verify after repeated tool-calling rounds", async () => {
 
   expect(result.success).toBe(true);
   expect(bus.history.filter((event) => event.type === "tool_start").length).toBe(6);
+  expect(bus.history.filter((event) => event.type === "verification").length).toBe(1);
+});
+
+test("agent explores without changes past the verify interval", async () => {
+  const bus = new EventBus();
+  const readResponse = {
+    content: "",
+    toolCalls: [
+      {
+        id: "call_read",
+        type: "function" as const,
+        function: { name: "read_file", arguments: '{"path":"file.txt"}' },
+      },
+    ],
+    finishReason: "tool_calls" as const,
+    usage: usage(),
+  };
+  const client = new ScriptedClient([
+    {
+      content: "- [ ] locate the bug",
+      toolCalls: [],
+      finishReason: "stop",
+      usage: usage(),
+    },
+    ...Array.from({ length: 10 }, () => readResponse),
+    {
+      content: "定位完成：bug 在 file.txt",
+      toolCalls: [],
+      finishReason: "stop",
+      usage: usage(),
+    },
+    {
+      content: '{"approved": true, "feedback": "ok"}',
+      toolCalls: [],
+      finishReason: "stop",
+      usage: usage(),
+    },
+  ]);
+  const agent = new ReallityAgent({
+    workspaceRoot: root,
+    client,
+    eventBus: bus,
+    runTests: async (): Promise<VerificationResult> => ({
+      passed: true,
+      exitCode: 0,
+      output: "1 pass\n0 fail",
+      diagnostics: [],
+    }),
+  });
+
+  const result = await agent.run("定位 file.txt 中的 bug");
+
+  expect(result.success).toBe(true);
+  expect(bus.history.filter((event) => event.type === "tool_start").length).toBe(10);
+  expect(bus.history.filter((event) => event.type === "verification").length).toBe(1);
 });
 
 test("looksLikeReadOnlyTask classifies inspection requests as read-only", () => {
