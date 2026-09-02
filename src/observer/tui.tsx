@@ -751,7 +751,7 @@ export function TuiApp({
             {command}
           </Text>
           {snapshot.running ? (
-            <Text color="yellow">⏳</Text>
+            <Text color="yellow"> </Text>
           ) : (
             <Text color="gray">█</Text>
           )}
