@@ -107,7 +107,7 @@ beforeEach(async () => {
     cwd: root,
   });
   await writeFile(path.join(root, "file.txt"), "hello\n");
-  await writeFile(path.join(root, ".gitignore"), "trace.html\n");
+  await writeFile(path.join(root, ".gitignore"), "trace.html\n.reallity/\n");
   await execFileAsync("git", ["add", "."], { cwd: root });
   await execFileAsync("git", ["commit", "-m", "initial"], { cwd: root });
 });
@@ -167,6 +167,7 @@ test("agent plans, executes read_file, verifies, and finishes", async () => {
 
   expect(result.success).toBe(true);
   expect(result.state).toBe("finish");
+  expect(result.tracePath).toMatch(/\.reallity\/traces\/trace-\d+\.html$/);
   expect(bus.history.some((event) => event.type === "tool_start")).toBe(true);
   expect(bus.history.some((event) => event.type === "verification")).toBe(true);
   expect(await readFile(path.join(root, "file.txt"), "utf8")).toBe("hello\n");
@@ -503,6 +504,103 @@ test("an early change verifies once and later reads do not force verify again", 
   expect(result.success).toBe(true);
   expect(bus.history.filter((event) => event.type === "tool_start").length).toBe(12);
   expect(bus.history.filter((event) => event.type === "verification").length).toBe(2);
+});
+
+test("planner output with fake tool-call XML triggers a clean re-plan", async () => {
+  const bus = new EventBus();
+  const client = new RecordingClient([
+    {
+      content:
+        '<tool_calls><invoke name="bash"><parameter name="command">grep x</parameter></invoke></tool_calls>',
+      toolCalls: [],
+      finishReason: "stop",
+      usage: usage(),
+    },
+    {
+      content: "- [ ] step A\n- [ ] step B",
+      toolCalls: [],
+      finishReason: "stop",
+      usage: usage(),
+    },
+    { content: "done", toolCalls: [], finishReason: "stop", usage: usage() },
+    {
+      content: '{"approved": true, "feedback": "ok"}',
+      toolCalls: [],
+      finishReason: "stop",
+      usage: usage(),
+    },
+  ]);
+  const agent = new ReallityAgent({ workspaceRoot: root, client, eventBus: bus });
+
+  const result = await agent.run("do something");
+
+  expect(result.success).toBe(true);
+  expect(client.seen[1].map((message) => message.content).join("\n")).toContain(
+    "禁止调用工具",
+  );
+  const checklistEvent = bus.history.find((event) => event.type === "checklist");
+  const items =
+    checklistEvent?.type === "checklist"
+      ? checklistEvent.items.map((item) => item.id)
+      : [];
+  expect(items).toEqual(["step A", "step B"]);
+});
+
+test("planner re-plan is bounded even when fake tool-call XML persists", async () => {
+  const bus = new EventBus();
+  const client = new RecordingClient([
+    {
+      content: "<tool_calls>grep x</tool_calls>",
+      toolCalls: [],
+      finishReason: "stop",
+      usage: usage(),
+    },
+    {
+      content: "<tool_calls>grep y</tool_calls>",
+      toolCalls: [],
+      finishReason: "stop",
+      usage: usage(),
+    },
+    { content: "done", toolCalls: [], finishReason: "stop", usage: usage() },
+    {
+      content: '{"approved": true, "feedback": "ok"}',
+      toolCalls: [],
+      finishReason: "stop",
+      usage: usage(),
+    },
+  ]);
+  const agent = new ReallityAgent({ workspaceRoot: root, client, eventBus: bus });
+
+  const result = await agent.run("do something");
+
+  expect(result.success).toBe(true);
+  expect(client.seen.length).toBe(4);
+  const checklistEvent = bus.history.find((event) => event.type === "checklist");
+  const items =
+    checklistEvent?.type === "checklist"
+      ? checklistEvent.items.map((item) => item.id)
+      : [];
+  expect(items).toEqual(["Complete the requested task"]);
+});
+
+test("executor prompt requires real file edits over pasted code", async () => {
+  const client = new RecordingClient([
+    { content: "- [ ] step", toolCalls: [], finishReason: "stop", usage: usage() },
+    { content: "done", toolCalls: [], finishReason: "stop", usage: usage() },
+    {
+      content: '{"approved": true, "feedback": "ok"}',
+      toolCalls: [],
+      finishReason: "stop",
+      usage: usage(),
+    },
+  ]);
+  const agent = new ReallityAgent({ workspaceRoot: root, client });
+
+  await agent.run("fix something");
+
+  const executorSystem = client.seen[1][0].content;
+  expect(executorSystem).toContain("edit_file");
+  expect(executorSystem).toContain("pasted code");
 });
 
 test("looksLikeReadOnlyTask classifies inspection requests as read-only", () => {

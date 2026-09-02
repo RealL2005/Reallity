@@ -1,5 +1,7 @@
 import { ContextManager } from "./core/context.ts";
 import type { ToolCall } from "./core/context.ts";
+import { mkdir, writeFile } from "node:fs/promises";
+import path from "node:path";
 import type { ChatMessage, LLMResponse } from "./llm/types.ts";
 import type { StreamCompletionOptions } from "./llm/client.ts";
 import { CircuitBreaker, FSMEngine } from "./fsm/engine.ts";
@@ -71,6 +73,7 @@ export class ReallityAgent {
   private checkpointSnapshot?: CheckpointSnapshot;
   private readonly toolRoundsBeforeVerify: number;
   private lastVerifyState?: { diff: string; untracked: string[] };
+  private plannerRetried = false;
 
   constructor(options: ReallityAgentOptions) {
     this.workspaceRoot = options.workspaceRoot;
@@ -99,6 +102,7 @@ export class ReallityAgent {
     this.toolRounds = 0;
     this.readOnly = looksLikeReadOnlyTask(task);
     this.context.resetChecklist();
+    this.plannerRetried = false;
     this.emit({ type: "state", state: "init", timestamp: started });
     this.context.appendUser(task);
     const snapshot = await this.checkpoint.capture();
@@ -158,7 +162,7 @@ export class ReallityAgent {
         message,
         answer,
         rounds: this.fsm.interactionCount,
-        tracePath: this.writeTrace(),
+        tracePath: await this.writeTrace(),
       };
     } catch (error) {
       const message = error instanceof Error ? error.message : String(error);
@@ -177,7 +181,7 @@ export class ReallityAgent {
           this.lastLlmContent ||
           this.toolChainSummary,
         rounds: this.fsm.interactionCount,
-        tracePath: this.writeTrace(),
+        tracePath: await this.writeTrace(),
       };
     }
   }
@@ -189,6 +193,14 @@ export class ReallityAgent {
       response.toolCalls,
       response.reasoningContent,
     );
+    if (!this.plannerRetried && containsFakeToolCall(response.content)) {
+      this.plannerRetried = true;
+      this.context.appendUser(
+        "Planner 输出包含工具调用文本（<tool_calls>/<invoke>）。规划阶段禁止调用工具，请重新输出纯清单：每行以 '- [ ] ' 开头，不要写任何工具调用或 XML。",
+      );
+      await this.plan();
+      return;
+    }
     const checklist = extractChecklist(response.content);
     this.context.addChecklistItems(
       checklist.length > 0 ? checklist : ["Complete the requested task"],
@@ -510,12 +522,14 @@ export class ReallityAgent {
       "Analyze the user's task and produce a concise checklist of actionable steps.",
       "Each checklist item must start with '- [ ]'.",
       "Do NOT call tools in this state.",
+      "Do NOT write tool-call XML or text such as <tool_calls> or <invoke>; output only the checklist items.",
       "After the checklist, stop.",
     ].join("\n");
     const executorRules = [
       "You are in EXECUTOR state.",
       "Work only on the current incomplete checklist item.",
       "Use tools when you need to read or modify the repository.",
+      "If the task requires changing code, you MUST actually write the changes to files with edit_file (or a permitted command). Never answer with pasted code alone — the semantic review rejects replies without real file changes.",
       "After receiving tool results, decide whether the current item is complete.",
       "If the current item is complete, respond with a short final summary and NO tool calls.",
       "Do not repeat completed work or call unnecessary read-only tools.",
@@ -562,16 +576,22 @@ export class ReallityAgent {
     this.eventBus.emit(event);
   }
 
-  private writeTrace(): string {
-    const tracePath = `${this.workspaceRoot}/trace.html`;
+  private async writeTrace(): Promise<string> {
+    const tracesDir = path.join(this.workspaceRoot, ".reallity", "traces");
+    const tracePath = path.join(tracesDir, `trace-${Date.now()}.html`);
     const html = buildTraceHtml(this.eventBus.history);
-    Bun.write(tracePath, html);
+    await mkdir(tracesDir, { recursive: true });
+    await writeFile(tracePath, html, "utf8");
     return tracePath;
   }
 }
 
 function looksLikeNoTests(output: string): boolean {
   return /\b0 tests\b|No tests found/i.test(output);
+}
+
+function containsFakeToolCall(content: string): boolean {
+  return /<tool_calls>|<invoke\s+name=/i.test(content);
 }
 
 export function subtractPreExistingDiff(

@@ -24,4 +24,4 @@ Headless：bun run src/cli.ts --mode headless --task "你的编程任务"
 4. 熔断与回滚：同类错误连续 3 次触发熔断，自动 git checkout . 恢复干净状态并重新规划。
 5. AST 护栏：edit_file 修改 .ts/.tsx/.js/.jsx 文件前用 TypeScript AST 做语法诊断，语法错误拒绝写入；同时强制 Search/Replace 唯一匹配与 workspace 路径越界拦截。
 6. 工具集：read_file、edit_file、bash、list_dir、glob。bash 注入非交互环境变量，30 秒超时并销毁进程树。
-7. 可观测性：EventBus 实时记录结构化事件，任务结束生成 trace.html，内含 Mermaid FSM 决策 DAG、Token/Cache 趋势与 Diff 审计。
+7. 可观测性：EventBus 实时记录结构化事件，任务结束生成 .reallity/traces/trace-时间戳.html，内含 Mermaid FSM 决策 DAG、Token/Cache 趋势与 Diff 审计。
