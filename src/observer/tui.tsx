@@ -57,6 +57,7 @@ interface ActivityItem {
   outputPreview?: string;
   errorSignature?: string;
   success?: boolean;
+  items?: string[];
 }
 
 interface ColoredLine {
@@ -893,6 +894,21 @@ function buildWorkflowLines({
     for (let entryIndex = 0; entryIndex < entries.length; entryIndex += 1) {
       const entry = entries[entryIndex];
       const isLast = entryIndex === entries.length - 1;
+      if (entry.kind === "checklist" && entry.items && entry.items.length > 0) {
+        logical.push({
+          text: `    ${isLast ? "└─" : "├─"} ${entry.text}`,
+          color: entry.color ?? "cyan",
+          wrap: false,
+        });
+        for (const item of entry.items) {
+          logical.push({
+            text: `        - [ ] ${item}`,
+            color: "white",
+            wrap: true,
+          });
+        }
+        continue;
+      }
       const isExpanded = entry.id && expandedToolIds.has(entry.id);
       const isLlmExpanded = entry.id && expandedLlmIds.has(entry.id);
       let entryText = entry.text;
@@ -1296,7 +1312,8 @@ function summarizeActivity(event: AgentEvent): ActivityItem | null {
     case "checklist":
       return {
         kind: "checklist",
-        text: `checklist: ${event.items.map((item) => item.id).join(" → ")}`,
+        text: `Checklist (${event.items.length})`,
+        items: event.items.map((item) => item.id),
         color: "cyan",
       };
     case "rollback":
