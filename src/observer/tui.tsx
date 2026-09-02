@@ -712,12 +712,16 @@ export function TuiApp({
       >
         <Box flexDirection="row">
           <Text bold color={snapshot.running ? "yellow" : "green"}>
-            {snapshot.running ? "⏳" : "> "}
+            {"> "}
           </Text>
           <Text color="white" bold wrap="truncate">
             {command}
           </Text>
-          {snapshot.running ? null : <Text color="gray">█</Text>}
+          {snapshot.running ? (
+            <Text color="yellow">⏳</Text>
+          ) : (
+            <Text color="gray">█</Text>
+          )}
         </Box>
         {inputHeight >= 4 ? (
           <Text color="gray" wrap="truncate">
