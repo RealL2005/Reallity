@@ -143,6 +143,51 @@ test("resolveSessionPaths bare --session resumes the default session file", () =
   }
 });
 
+test("bare --session without an existing file starts a persistent fresh session", () => {
+  const dir = mkdtempSync(path.join(tmpdir(), "reallity-cli-"));
+  const defaultFile = path.join(dir, ".reallity", "session.json");
+  const saved = process.env.REALLITY_SESSION;
+  delete process.env.REALLITY_SESSION;
+  try {
+    const resolved = resolveSessionPaths({
+      workspace: dir,
+      noSession: false,
+      sessionRequested: true,
+      saveSessionRequested: false,
+    });
+
+    expect(resolved.loadPath).toBeUndefined();
+    expect(resolved.savePath).toBe(defaultFile);
+    expect(resolved.freshPersistent).toBe(true);
+  } finally {
+    rmSync(dir, { recursive: true, force: true });
+    if (saved === undefined) delete process.env.REALLITY_SESSION;
+    else process.env.REALLITY_SESSION = saved;
+  }
+});
+
+test("explicit --session with a missing file keeps the load path for a clear error", () => {
+  const dir = mkdtempSync(path.join(tmpdir(), "reallity-cli-"));
+  const saved = process.env.REALLITY_SESSION;
+  delete process.env.REALLITY_SESSION;
+  try {
+    const resolved = resolveSessionPaths({
+      workspace: dir,
+      noSession: false,
+      sessionPath: "/tmp/does-not-exist.json",
+      sessionRequested: true,
+      saveSessionRequested: false,
+    });
+
+    expect(resolved.loadPath).toBe("/tmp/does-not-exist.json");
+    expect(resolved.freshPersistent).toBeUndefined();
+  } finally {
+    rmSync(dir, { recursive: true, force: true });
+    if (saved === undefined) delete process.env.REALLITY_SESSION;
+    else process.env.REALLITY_SESSION = saved;
+  }
+});
+
 test("resolveSessionPaths honors explicit session, save-session, and no-session", () => {
   const dir = mkdtempSync(path.join(tmpdir(), "reallity-cli-"));
   const saved = process.env.REALLITY_SESSION;

@@ -117,6 +117,7 @@ export function parseCliArgs(argv: string[]): CliOptions {
 export interface ResolvedSessionPaths {
   loadPath?: string;
   savePath?: string;
+  freshPersistent?: boolean;
 }
 
 export function resolveSessionPaths(options: {
@@ -149,6 +150,11 @@ export function resolveSessionPaths(options: {
 
   if (options.sessionRequested) {
     const resumePath = options.sessionPath ?? defaultPath;
+    const explicitPath = options.sessionPath !== undefined;
+    if (!explicitPath && !existsSync(resumePath)) {
+      // 裸 --session：默认会话文件不存在 → 开启持久化新会话（自动创建该文件）
+      return { loadPath: undefined, savePath: resumePath, freshPersistent: true };
+    }
     return {
       loadPath: resumePath,
       savePath: options.saveSessionRequested
@@ -240,7 +246,8 @@ export async function runCli(argv: string[] = process.argv.slice(2)): Promise<nu
   }
 
   if (options.mode === "tui") {
-    const { loadPath, savePath } = resolveSessionPaths(options);
+    const sessionPaths = resolveSessionPaths(options);
+    const { loadPath, savePath } = sessionPaths;
 
     let session: Session;
     if (loadPath) {
@@ -262,7 +269,7 @@ export async function runCli(argv: string[] = process.argv.slice(2)): Promise<nu
         console.error(
           `Failed to resume session ${loadPath}: ${
             error instanceof Error ? error.message : String(error)
-          }\nHint: 会话文件不存在时先运行一次任务生成，或检查 --session 路径。`,
+          }\nHint: 该会话文件不存在。若想使用默认路径，直接运行 reallity --session（会自动新建并保存）；或检查 --session 路径是否笔误。`,
         );
         return 1;
       }
@@ -325,6 +332,13 @@ export async function runCli(argv: string[] = process.argv.slice(2)): Promise<nu
         })();
       },
     });
+    if (sessionPaths.freshPersistent) {
+      eventBus.emit({
+        type: "notice",
+        message: `新持久化会话：任务结果将自动保存到 ${sessionPaths.savePath}（之后用 reallity --session 恢复）`,
+        timestamp: Date.now(),
+      });
+    }
     if (options.task) {
       void session.ask(options.task);
     }
