@@ -71,6 +71,8 @@ export class ReallityAgent {
   private lastLlmContent = "";
   private toolChainSummary = "";
   private lastToolOutput = "";
+  private lastReviewApproved = false;
+  private lastReviewFeedback = "";
   private checkpointSnapshot?: CheckpointSnapshot;
   private readonly toolRoundsBeforeVerify: number;
   private lastVerifyState?: { diff: string; untracked: string[] };
@@ -104,6 +106,8 @@ export class ReallityAgent {
     this.lastLlmContent = "";
     this.toolChainSummary = "";
     this.lastToolOutput = "";
+    this.lastReviewApproved = false;
+    this.lastReviewFeedback = "";
     this.toolRounds = 0;
     this.readOnly = looksLikeReadOnlyTask(task);
     this.context.resetChecklist();
@@ -152,6 +156,9 @@ export class ReallityAgent {
       const message = "Task completed.";
       const answer =
         this.finalAnswer ||
+        (this.lastReviewApproved && this.lastReviewFeedback
+          ? `Task completed. ${this.lastReviewFeedback}`
+          : "") ||
         this.lastToolOutput ||
         this.lastLlmContent ||
         this.toolChainSummary ||
@@ -404,6 +411,8 @@ export class ReallityAgent {
       feedback: review?.feedback ?? "",
       timestamp: Date.now(),
     });
+    this.lastReviewApproved = Boolean(review?.approved);
+    this.lastReviewFeedback = review?.feedback ?? "";
     await this.refreshVerifyBaseline();
     this.lastRoundSignature = undefined;
     this.stagnationCount = 0;

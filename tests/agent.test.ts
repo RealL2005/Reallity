@@ -946,6 +946,65 @@ test("semantic review can approve work despite failing verification", async () =
   expect(result.state).toBe("finish");
 });
 
+test("finish answer uses review feedback when the executor never summarized", async () => {
+  const toolA = {
+    content: "",
+    toolCalls: [
+      {
+        id: "a",
+        type: "function" as const,
+        function: {
+          name: "bash",
+          arguments: JSON.stringify({ command: "echo a >> file.txt" }),
+        },
+      },
+    ],
+    finishReason: "tool_calls" as const,
+    usage: usage(),
+  };
+  const toolB = {
+    content: "",
+    toolCalls: [
+      {
+        id: "b",
+        type: "function" as const,
+        function: {
+          name: "bash",
+          arguments: JSON.stringify({ command: "echo b >> file.txt" }),
+        },
+      },
+    ],
+    finishReason: "tool_calls" as const,
+    usage: usage(),
+  };
+  const client = new ScriptedClient([
+    { content: "- [ ] fix", toolCalls: [], finishReason: "stop", usage: usage() },
+    ...Array.from({ length: 6 }, (_, index) => (index % 2 === 0 ? toolA : toolB)),
+    {
+      content: '{"approved": true, "feedback": "the fix is correct and minimal"}',
+      toolCalls: [],
+      finishReason: "stop",
+      usage: usage(),
+    },
+  ]);
+  const agent = new ReallityAgent({
+    workspaceRoot: root,
+    client,
+    runTests: async (): Promise<VerificationResult> => ({
+      passed: true,
+      exitCode: 0,
+      output: "1 pass\n0 fail",
+      diagnostics: [],
+    }),
+  });
+
+  const result = await agent.run("修改 file.txt");
+
+  expect(result.success).toBe(true);
+  expect(result.answer).toContain("the fix is correct and minimal");
+  expect(result.answer).not.toContain("echo b >> file.txt");
+});
+
 test("semantic review rejection sends work back to executor", async () => {
   const client = new RecordingClient([
     { content: "- [ ] step", toolCalls: [], finishReason: "stop", usage: usage() },
