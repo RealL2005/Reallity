@@ -99,30 +99,33 @@ export interface TuiHeights {
 }
 
 export function computeHeights(rows: number): TuiHeights {
-  const terminalHeight = Math.max(16, rows - 2);
+  const terminalHeight = Math.max(14, rows - 2);
   const bannerHeight =
-    terminalHeight >= 30 ? 5 : terminalHeight >= 20 ? 1 : 0;
-  const inputHeight = terminalHeight >= 20 ? 4 : 3;
+    terminalHeight >= 30 ? 5 : terminalHeight >= 18 ? 1 : 0;
+  const inputHeight = terminalHeight >= 18 ? 4 : 3;
   const innerHeight = Math.max(
     8,
     terminalHeight - bannerHeight - inputHeight,
   );
-  const topologyHeight = Math.max(4, Math.min(5, Math.floor(innerHeight / 5)));
-  const conversationHeight = Math.max(
-    3,
-    Math.min(5, Math.floor(innerHeight / 4)),
-  );
-  const summaryHeight = Math.max(
-    3,
-    Math.min(5, Math.floor(innerHeight / 4)),
+
+  // 左侧优先级：workflow(主面板) > summary(5) > conversation > topology(装饰)
+  const topologyHeight = innerHeight >= 20 ? 4 : 0;
+  const conversationHeight = innerHeight >= 22 ? 6 : 4;
+  const summaryHeight = Math.min(
+    5,
+    Math.max(3, Math.floor(innerHeight / 3)),
   );
   const workflowHeight = Math.max(
-    3,
+    4,
     innerHeight - topologyHeight - conversationHeight - summaryHeight,
   );
-  const llmHeight = Math.min(8, Math.max(6, Math.ceil(innerHeight / 3) + 1));
-  const tokenHeight = Math.max(4, Math.min(5, Math.floor(innerHeight / 4)));
-  const diffHeight = Math.max(3, innerHeight - llmHeight - tokenHeight);
+
+  // 右侧：llm(元数据2行+内容) 与 token(4行内容) 按需给足，diff 吃余量
+  const llmHeight =
+    innerHeight >= 20 ? 8 : innerHeight >= 16 ? 6 : 4;
+  const tokenHeight =
+    innerHeight >= 16 ? 7 : 0;
+  const diffHeight = Math.max(4, innerHeight - llmHeight - tokenHeight);
   return {
     bannerHeight,
     inputHeight,
@@ -598,19 +601,21 @@ export function TuiApp({
       ) : null}
       <Box flexDirection="row" height={innerHeight} width={contentWidth}>
         <Box flexDirection="column" width={leftWidth} height={innerHeight}>
-          <Panel
-            title="FSM TOPOLOGY"
-            color="cyan"
-            height={topologyHeight}
-            width={leftWidth - 2}
-            focused={activePanel === "topology"}
-          >
-            <TopologyBar
-              state={snapshot.state}
-              stateLog={stateLog}
-              width={leftWidth - 6}
-            />
-          </Panel>
+          {topologyHeight > 0 ? (
+            <Panel
+              title="FSM TOPOLOGY"
+              color="cyan"
+              height={topologyHeight}
+              width={leftWidth - 2}
+              focused={activePanel === "topology"}
+            >
+              <TopologyBar
+                state={snapshot.state}
+                stateLog={stateLog}
+                width={leftWidth - 6}
+              />
+            </Panel>
+          ) : null}
           <Panel
             title="CONVERSATION"
             color="magenta"
@@ -679,9 +684,11 @@ export function TuiApp({
             />
           </Panel>
 
-          <Panel title="TOKEN STATISTICS" color="blue" height={tokenHeight} width={rightWidth - 2} focused={activePanel === "token"}>
-            <TokenStats usage={usageTotals} current={currentUsage} limit={tokenLimit} errorCount={errorCount} />
-          </Panel>
+          {tokenHeight > 0 ? (
+            <Panel title="TOKEN STATISTICS" color="blue" height={tokenHeight} width={rightWidth - 2} focused={activePanel === "token"}>
+              <TokenStats usage={usageTotals} current={currentUsage} limit={tokenLimit} errorCount={errorCount} />
+            </Panel>
+          ) : null}
 
           <Panel
             title="FILE MODIFICATION DIFF"
@@ -1009,7 +1016,9 @@ function ConversationView({
 }) {
   if (entries.length === 0) {
     return (
-      <Text color="gray">No conversation yet — type a message below.</Text>
+      <Text color="gray" wrap="truncate">
+        No conversation yet — type a message below.
+      </Text>
     );
   }
   const lines: ColoredLine[] = entries.flatMap((entry) => [
@@ -1137,8 +1146,9 @@ function StringScrollable({
   offset: number;
   width: number;
 }) {
-  // 留出 1 行固定给底部的页码指示器
-  const contentHeight = Math.max(1, height - 1);
+  // 高度足够时留 1 行给页码指示器；高度 <=1 时只显示内容行
+  const showIndicator = height >= 2;
+  const contentHeight = showIndicator ? Math.max(1, height - 1) : Math.max(1, height);
 
   const physical = lines.flatMap((line) => {
     if (line.wrap === false) {
@@ -1166,10 +1176,12 @@ function StringScrollable({
       </Box>
 
       {/* 2. 页码指示器：通过 space-between 被固定锁死在 Box 最底部 */}
-      <Text color="gray">
-        {clamped + 1}-{Math.min(physical.length, clamped + contentHeight)} /{" "}
-        {physical.length}
-      </Text>
+      {showIndicator ? (
+        <Text color="gray">
+          {clamped + 1}-{Math.min(physical.length, clamped + contentHeight)} /{" "}
+          {physical.length}
+        </Text>
+      ) : null}
     </Box>
   );
 }
@@ -1197,15 +1209,15 @@ function TokenStats({
       : "n/a";
   return (
     <Box flexDirection="column">
-      <Text color="white">
+      <Text color="white" wrap="truncate">
         prompt {usage.promptTokens} · completion {usage.completionTokens} · total{" "}
         {usage.totalTokens}
       </Text>
-      <Text color="white">
+      <Text color="white" wrap="truncate">
         session {usage.totalTokens} · this task {current.totalTokens} · cache hit {cacheHitRate} · err signatures {errorCount}/3
       </Text>
-      <Text color="yellow">est cost ${cost.toFixed(4)}</Text>
-      <Text color="gray">remaining {remaining} / {limit}</Text>
+      <Text color="gray" wrap="truncate">remaining {remaining} / {limit}</Text>
+      <Text color="yellow" wrap="truncate">est cost ${cost.toFixed(4)}</Text>
     </Box>
   );
 }

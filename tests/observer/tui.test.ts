@@ -141,8 +141,12 @@ test("computeHeights keeps the input bar visible across terminal sizes", () => {
     const h = computeHeights(rows);
     expect(h.inputHeight).toBeGreaterThanOrEqual(3);
     expect(h.bannerHeight).toBeGreaterThanOrEqual(0);
-    expect(h.topologyHeight).toBeGreaterThanOrEqual(4);
+    expect(h.topologyHeight).toBeGreaterThanOrEqual(0);
     expect(h.llmHeight).toBeGreaterThanOrEqual(4);
+    // 内容需要量：summary 文本+页码、token 至少 3 行、workflow 主面板
+    expect(h.summaryHeight).toBeGreaterThanOrEqual(3);
+    expect(h.workflowHeight).toBeGreaterThanOrEqual(4);
+    expect(h.diffHeight).toBeGreaterThanOrEqual(4);
     const leftTotal =
       h.topologyHeight +
       h.conversationHeight +
@@ -151,9 +155,29 @@ test("computeHeights keeps the input bar visible across terminal sizes", () => {
     const rightTotal = h.llmHeight + h.tokenHeight + h.diffHeight;
     expect(leftTotal).toBeLessThanOrEqual(h.innerHeight);
     expect(rightTotal).toBeLessThanOrEqual(h.innerHeight);
-    expect(h.workflowHeight).toBeGreaterThanOrEqual(3);
-    expect(h.diffHeight).toBeGreaterThanOrEqual(3);
   }
+});
+
+test("computeHeights gives every panel its content at 30+ rows", () => {
+  for (const rows of [30, 40, 60]) {
+    const h = computeHeights(rows);
+    // 面板内容行 = H-3
+    expect(h.topologyHeight - 3).toBeGreaterThanOrEqual(1);
+    expect(h.conversationHeight - 3).toBeGreaterThanOrEqual(3);
+    expect(h.summaryHeight - 3).toBeGreaterThanOrEqual(2);
+    expect(h.workflowHeight - 3).toBeGreaterThanOrEqual(5);
+    expect(h.llmHeight - 3).toBeGreaterThanOrEqual(5);
+    expect(h.tokenHeight - 3).toBeGreaterThanOrEqual(4);
+    expect(h.diffHeight - 3).toBeGreaterThanOrEqual(5);
+  }
+});
+
+test("computeHeights prioritizes the workflow on 24-row terminals", () => {
+  const h = computeHeights(24);
+  expect(h.topologyHeight).toBe(0);
+  expect(h.workflowHeight - 3).toBeGreaterThanOrEqual(5);
+  expect(h.summaryHeight - 3).toBeGreaterThanOrEqual(2);
+  expect(h.tokenHeight - 3).toBeGreaterThanOrEqual(3);
 });
 
 test("isEraseKey recognizes backspace across key formats", () => {
