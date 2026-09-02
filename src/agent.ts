@@ -42,6 +42,7 @@ export interface ReallityAgentOptions {
   runTests?: RunTests;
   maxInteractions?: number;
   toolRoundsBeforeVerify?: number;
+  stagnationLimit?: number;
   commitMessagePrefix?: string;
 }
 
@@ -74,6 +75,9 @@ export class ReallityAgent {
   private readonly toolRoundsBeforeVerify: number;
   private lastVerifyState?: { diff: string; untracked: string[] };
   private plannerRetried = false;
+  private lastRoundSignature?: string;
+  private stagnationCount = 0;
+  private readonly stagnationLimit: number;
 
   constructor(options: ReallityAgentOptions) {
     this.workspaceRoot = options.workspaceRoot;
@@ -81,6 +85,7 @@ export class ReallityAgent {
     this.eventBus = options.eventBus ?? new EventBus();
     this.fsm = new FSMEngine({ maxInteractions: options.maxInteractions });
     this.toolRoundsBeforeVerify = options.toolRoundsBeforeVerify ?? 6;
+    this.stagnationLimit = options.stagnationLimit ?? 3;
     this.breaker = new CircuitBreaker(3);
     this.checkpoint = new GitCheckpoint(options.workspaceRoot);
     this.context =
@@ -103,6 +108,8 @@ export class ReallityAgent {
     this.readOnly = looksLikeReadOnlyTask(task);
     this.context.resetChecklist();
     this.plannerRetried = false;
+    this.lastRoundSignature = undefined;
+    this.stagnationCount = 0;
     this.emit({ type: "state", state: "init", timestamp: started });
     this.context.appendUser(task);
     const snapshot = await this.checkpoint.capture();
@@ -216,6 +223,22 @@ export class ReallityAgent {
 
   private async execute(): Promise<void> {
     const response = await this.complete("executor");
+    const signature = roundSignature(response);
+    if (signature === this.lastRoundSignature) {
+      this.stagnationCount += 1;
+    } else {
+      this.lastRoundSignature = signature;
+      this.stagnationCount = 1;
+    }
+    if (this.stagnationCount >= this.stagnationLimit) {
+      this.lastRoundSignature = undefined;
+      this.stagnationCount = 0;
+      this.context.addConstraint(
+        "Detected repeated identical actions across rounds — suspected loop; roll back and change approach.",
+      );
+      this.transition("rollback");
+      return;
+    }
     this.context.appendAssistant(
       response.content,
       response.toolCalls,
@@ -381,6 +404,8 @@ export class ReallityAgent {
       timestamp: Date.now(),
     });
     await this.refreshVerifyBaseline();
+    this.lastRoundSignature = undefined;
+    this.stagnationCount = 0;
     if (review?.approved) {
       this.transition("commit");
       return;
@@ -464,6 +489,8 @@ export class ReallityAgent {
 
   private async rollbackAndReplan(): Promise<void> {
     await this.checkpoint.rollback();
+    this.lastRoundSignature = undefined;
+    this.stagnationCount = 0;
     this.emit({
       type: "rollback",
       success: true,
@@ -592,6 +619,15 @@ function looksLikeNoTests(output: string): boolean {
 
 function containsFakeToolCall(content: string): boolean {
   return /<tool_calls>|<invoke\s+name=/i.test(content);
+}
+
+function roundSignature(response: LLMResponse): string {
+  if (response.toolCalls.length === 0) {
+    return `content:${response.content.slice(0, 200)}`;
+  }
+  return response.toolCalls
+    .map((call) => `${call.function.name}:${call.function.arguments}`)
+    .join("|");
 }
 
 export function subtractPreExistingDiff(

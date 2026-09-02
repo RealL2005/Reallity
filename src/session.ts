@@ -24,6 +24,7 @@ export interface SessionOptions {
   maxHistoryMessages?: number;
   maxInteractions?: number;
   toolRoundsBeforeVerify?: number;
+  stagnationLimit?: number;
 }
 
 export interface SessionTaskRecord {
@@ -123,6 +124,7 @@ export class Session {
   private readonly model?: string;
   private readonly maxInteractions?: number;
   private readonly toolRoundsBeforeVerify?: number;
+  private readonly stagnationLimit?: number;
   private running = false;
   private readonly createdAt: number;
   private updatedAt: number;
@@ -141,6 +143,7 @@ export class Session {
     this.model = options.model;
     this.maxInteractions = options.maxInteractions;
     this.toolRoundsBeforeVerify = options.toolRoundsBeforeVerify;
+    this.stagnationLimit = options.stagnationLimit;
     this.createdAt = Date.now();
     this.updatedAt = this.createdAt;
   }
@@ -177,6 +180,7 @@ export class Session {
         context: this.context,
         maxInteractions: this.maxInteractions,
         toolRoundsBeforeVerify: this.toolRoundsBeforeVerify,
+        stagnationLimit: this.stagnationLimit,
       });
       result = await agent.run(task);
     } catch (error) {

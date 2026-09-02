@@ -47,6 +47,15 @@ test("FSMEngine enforces the interaction limit", () => {
   expect(engine.maxInteractions).toBe(3);
 });
 
+test("FSMEngine defaults to a generous interaction cap and allows executor rollback", () => {
+  expect(new FSMEngine().maxInteractions).toBe(200);
+  const engine = new FSMEngine();
+  engine.transition("planner");
+  engine.transition("executor");
+  engine.transition("rollback");
+  expect(engine.state).toBe("rollback");
+});
+
 test("CircuitBreaker trips after three identical error signatures", () => {
   const breaker = new CircuitBreaker(3);
 

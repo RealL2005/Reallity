@@ -85,6 +85,11 @@ test("parseCliArgs accepts --tool-rounds-before-verify", () => {
   expect(parsed.toolRoundsBeforeVerify).toBe(12);
 });
 
+test("parseCliArgs accepts --stagnation-limit", () => {
+  const parsed = parseCliArgs(["--stagnation-limit", "5"]);
+  expect(parsed.stagnationLimit).toBe(5);
+});
+
 test("parseCliArgs marks explicit workspace only when overridden", () => {
   expect(parseCliArgs(["--workspace", "/tmp/x"]).workspaceExplicit).toBe(true);
   expect(parseCliArgs([]).workspaceExplicit).toBe(false);

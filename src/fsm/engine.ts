@@ -4,7 +4,7 @@ import type { AgentState } from "./types.ts";
 export const LEGAL_TRANSITIONS: Record<AgentState, AgentState[]> = {
   init: ["planner"],
   planner: ["executor"],
-  executor: ["verify"],
+  executor: ["verify", "rollback"],
   verify: ["executor", "commit", "rollback"],
   commit: ["finish"],
   rollback: ["planner"],
@@ -55,7 +55,7 @@ export class FSMEngine {
   readonly maxInteractions: number;
 
   constructor(options: { maxInteractions?: number } = {}) {
-    this.maxInteractions = options.maxInteractions ?? 40;
+    this.maxInteractions = options.maxInteractions ?? 200;
   }
 
   transition(next: AgentState): void {

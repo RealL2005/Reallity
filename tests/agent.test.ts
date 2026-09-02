@@ -85,6 +85,28 @@ class RecordingClient implements ClientLike {
   }
 }
 
+function readRounds(count: number): ScriptedResponse[] {
+  return Array.from({ length: count }, (_, index) => ({
+    content: "",
+    toolCalls: [
+      {
+        id: `call_read_${index}`,
+        type: "function" as const,
+        function: {
+          name: "read_file",
+          arguments: JSON.stringify({
+            path: "file.txt",
+            start_line: 1,
+            end_line: (index % 3) + 1,
+          }),
+        },
+      },
+    ],
+    finishReason: "tool_calls" as const,
+    usage: usage(),
+  }));
+}
+
 function usage() {
   return {
     promptTokens: 0,
@@ -274,15 +296,30 @@ test("agent repairs a failing verification before committing", async () => {
 
 test("agent forces verify after repeated tool-calling rounds with changes", async () => {
   const bus = new EventBus();
-  const toolResponse = {
+  const toolA = {
     content: "",
     toolCalls: [
       {
-        id: "call_read",
+        id: "call_a",
         type: "function" as const,
         function: {
           name: "bash",
-          arguments: JSON.stringify({ command: "echo x >> file.txt" }),
+          arguments: JSON.stringify({ command: "echo a >> file.txt" }),
+        },
+      },
+    ],
+    finishReason: "tool_calls",
+    usage: usage(),
+  };
+  const toolB = {
+    content: "",
+    toolCalls: [
+      {
+        id: "call_b",
+        type: "function" as const,
+        function: {
+          name: "bash",
+          arguments: JSON.stringify({ command: "echo b >> file.txt" }),
         },
       },
     ],
@@ -296,12 +333,9 @@ test("agent forces verify after repeated tool-calling rounds with changes", asyn
       finishReason: "stop",
       usage: usage(),
     },
-    toolResponse,
-    toolResponse,
-    toolResponse,
-    toolResponse,
-    toolResponse,
-    toolResponse,
+    ...Array.from({ length: 6 }, (_, index) =>
+      index % 2 === 0 ? toolA : toolB,
+    ),
     {
       content: '{"approved": true, "feedback": "ok"}',
       toolCalls: [],
@@ -331,18 +365,6 @@ test("agent forces verify after repeated tool-calling rounds with changes", asyn
 
 test("agent explores without changes past the verify interval", async () => {
   const bus = new EventBus();
-  const readResponse = {
-    content: "",
-    toolCalls: [
-      {
-        id: "call_read",
-        type: "function" as const,
-        function: { name: "read_file", arguments: '{"path":"file.txt"}' },
-      },
-    ],
-    finishReason: "tool_calls" as const,
-    usage: usage(),
-  };
   const client = new ScriptedClient([
     {
       content: "- [ ] locate the bug",
@@ -350,7 +372,7 @@ test("agent explores without changes past the verify interval", async () => {
       finishReason: "stop",
       usage: usage(),
     },
-    ...Array.from({ length: 10 }, () => readResponse),
+    ...readRounds(10),
     {
       content: "定位完成：bug 在 file.txt",
       toolCalls: [],
@@ -386,18 +408,6 @@ test("agent explores without changes past the verify interval", async () => {
 test("writable task in a dirty workspace does not force verify during reads", async () => {
   const bus = new EventBus();
   await writeFile(path.join(root, "untracked-pre.txt"), "pre-existing\n");
-  const readResponse = {
-    content: "",
-    toolCalls: [
-      {
-        id: "call_read",
-        type: "function" as const,
-        function: { name: "read_file", arguments: '{"path":"file.txt"}' },
-      },
-    ],
-    finishReason: "tool_calls" as const,
-    usage: usage(),
-  };
   const client = new ScriptedClient([
     {
       content: "- [ ] inspect file",
@@ -405,7 +415,7 @@ test("writable task in a dirty workspace does not force verify during reads", as
       finishReason: "stop",
       usage: usage(),
     },
-    ...Array.from({ length: 10 }, () => readResponse),
+    ...readRounds(10),
     {
       content: "已定位，未改动",
       toolCalls: [],
@@ -456,29 +466,17 @@ test("an early change verifies once and later reads do not force verify again", 
     finishReason: "tool_calls" as const,
     usage: usage(),
   };
-  const readResponse = {
-    content: "",
-    toolCalls: [
-      {
-        id: "call_read",
-        type: "function" as const,
-        function: { name: "read_file", arguments: '{"path":"file.txt"}' },
-      },
-    ],
-    finishReason: "tool_calls" as const,
-    usage: usage(),
-  };
   const client = new ScriptedClient([
     { content: "- [ ] fix", toolCalls: [], finishReason: "stop", usage: usage() },
     editResponse,
-    ...Array.from({ length: 5 }, () => readResponse),
+    ...readRounds(5),
     {
       content: '{"approved": false, "feedback": "继续"}',
       toolCalls: [],
       finishReason: "stop",
       usage: usage(),
     },
-    ...Array.from({ length: 6 }, () => readResponse),
+    ...readRounds(6),
     { content: "完成", toolCalls: [], finishReason: "stop", usage: usage() },
     {
       content: '{"approved": true, "feedback": "ok"}',
@@ -601,6 +599,92 @@ test("executor prompt requires real file edits over pasted code", async () => {
   const executorSystem = client.seen[1][0].content;
   expect(executorSystem).toContain("edit_file");
   expect(executorSystem).toContain("pasted code");
+});
+
+test("identical consecutive tool calls trip stagnation and roll back", async () => {
+  const bus = new EventBus();
+  const context = new ContextManager({ systemPrompt: "" });
+  const readResponse = {
+    content: "",
+    toolCalls: [
+      {
+        id: "call_read",
+        type: "function" as const,
+        function: { name: "read_file", arguments: '{"path":"file.txt"}' },
+      },
+    ],
+    finishReason: "tool_calls" as const,
+    usage: usage(),
+  };
+  const client = new RecordingClient([
+    { content: "- [ ] step", toolCalls: [], finishReason: "stop", usage: usage() },
+    readResponse,
+    readResponse,
+    readResponse,
+    { content: "- [ ] retry", toolCalls: [], finishReason: "stop", usage: usage() },
+    { content: "done", toolCalls: [], finishReason: "stop", usage: usage() },
+    {
+      content: '{"approved": true, "feedback": "ok"}',
+      toolCalls: [],
+      finishReason: "stop",
+      usage: usage(),
+    },
+  ]);
+  const agent = new ReallityAgent({
+    workspaceRoot: root,
+    client,
+    eventBus: bus,
+    context,
+  });
+
+  const result = await agent.run("do something");
+
+  expect(result.success).toBe(true);
+  expect(bus.history.some((event) => event.type === "rollback")).toBe(true);
+  // 第 3 次相同请求在工具执行前即触发回滚，故实际执行 2 次
+  expect(bus.history.filter((event) => event.type === "tool_start").length).toBe(2);
+  expect(context.workingMemory.constraints.join("\n")).toContain("suspected loop");
+});
+
+test("different tool calls do not trip stagnation", async () => {
+  const bus = new EventBus();
+  const reads = [
+    { path: "file.txt" },
+    { path: "file.txt", start_line: 1, end_line: 2 },
+    { path: "src/agent.ts" },
+  ].map((args, index) => ({
+    content: "",
+    toolCalls: [
+      {
+        id: `call_${index}`,
+        type: "function" as const,
+        function: {
+          name: "read_file",
+          arguments: JSON.stringify(args),
+        },
+      },
+    ],
+    finishReason: "tool_calls" as const,
+    usage: usage(),
+  }));
+  const client = new ScriptedClient([
+    { content: "- [ ] step", toolCalls: [], finishReason: "stop", usage: usage() },
+    ...reads,
+    { content: "done", toolCalls: [], finishReason: "stop", usage: usage() },
+    {
+      content: '{"approved": true, "feedback": "ok"}',
+      toolCalls: [],
+      finishReason: "stop",
+      usage: usage(),
+    },
+  ]);
+  const agent = new ReallityAgent({ workspaceRoot: root, client, eventBus: bus });
+
+  const result = await agent.run("do something");
+
+  expect(result.success).toBe(true);
+  expect(bus.history.some((event) => event.type === "rollback")).toBe(false);
+  expect(bus.history.filter((event) => event.type === "tool_start").length).toBe(3);
 });
 
 test("looksLikeReadOnlyTask classifies inspection requests as read-only", () => {

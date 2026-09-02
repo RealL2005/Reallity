@@ -30,6 +30,7 @@ export interface CliOptions {
   workspaceExplicit: boolean;
   maxInteractions?: number;
   toolRoundsBeforeVerify?: number;
+  stagnationLimit?: number;
 }
 
 export function parseCliArgs(argv: string[]): CliOptions {
@@ -52,6 +53,8 @@ export function parseCliArgs(argv: string[]): CliOptions {
     toolRoundsBeforeVerify:
       Number(process.env.REALLITY_TOOL_ROUNDS_BEFORE_VERIFY?.trim() ?? 0) ||
       undefined,
+    stagnationLimit:
+      Number(process.env.REALLITY_STAGNATION_LIMIT?.trim() ?? 0) || undefined,
   };
 
   for (let index = 0; index < argv.length; index += 1) {
@@ -93,6 +96,9 @@ export function parseCliArgs(argv: string[]): CliOptions {
       case "--tool-rounds-before-verify":
         options.toolRoundsBeforeVerify =
           Number(argv[++index] ?? 0) || undefined;
+        break;
+      case "--stagnation-limit":
+        options.stagnationLimit = Number(argv[++index] ?? 0) || undefined;
         break;
       case "--help":
       case "-h":
@@ -210,6 +216,7 @@ export async function runCli(argv: string[] = process.argv.slice(2)): Promise<nu
     eventBus,
     maxInteractions: options.maxInteractions,
     toolRoundsBeforeVerify: options.toolRoundsBeforeVerify,
+    stagnationLimit: options.stagnationLimit,
   });
 
   if (options.mode === "web") {
@@ -248,6 +255,7 @@ export async function runCli(argv: string[] = process.argv.slice(2)): Promise<nu
           model: options.model,
           maxInteractions: options.maxInteractions,
           toolRoundsBeforeVerify: options.toolRoundsBeforeVerify,
+          stagnationLimit: options.stagnationLimit,
         });
         session = loaded.session;
       } catch (error) {
@@ -267,6 +275,7 @@ export async function runCli(argv: string[] = process.argv.slice(2)): Promise<nu
         model: options.model,
         maxInteractions: options.maxInteractions,
         toolRoundsBeforeVerify: options.toolRoundsBeforeVerify,
+        stagnationLimit: options.stagnationLimit,
       });
     }
 
@@ -361,8 +370,9 @@ const HELP_TEXT = [
   "  --session [path]       resume a conversation (default: .reallity/session.json)",
   "  --save-session [path]  auto-save this conversation (default: .reallity/session.json)",
   "  --no-session           start fresh without any persistence",
-  "  --max-interactions N   LLM interaction limit (default: 40)",
+  "  --max-interactions N   LLM interaction safety cap (default: 200)",
   "  --tool-rounds-before-verify N   force verify interval (default: 6)",
+  "  --stagnation-limit N    consecutive identical rounds before rollback (default: 3)",
   "  -h, --help    show help",
   "  -V, --version show version",
 ].join("\n");
